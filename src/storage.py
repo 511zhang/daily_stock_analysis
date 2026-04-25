@@ -624,6 +624,68 @@ class LLMUsage(Base):
     called_at = Column(DateTime, default=datetime.now, index=True)
 
 
+class RealtimeQuoteCache(Base):
+    """
+    实时行情缓存表
+
+    存储全市场最新一次行情快照，每只股票保留一条记录（UPSERT）。
+    定时刷新任务写入，分析流程读取，避免重复拉取全量接口。
+    """
+    __tablename__ = 'realtime_quote_cache'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(10), nullable=False, unique=True, index=True)
+    name = Column(String(50))
+    price = Column(Float)
+    change_pct = Column(Float)
+    change_amount = Column(Float)
+    volume = Column(Float)
+    amount = Column(Float)
+    volume_ratio = Column(Float)
+    turnover_rate = Column(Float)
+    amplitude = Column(Float)
+    open_price = Column(Float)
+    high = Column(Float)
+    low = Column(Float)
+    pre_close = Column(Float)
+    pe_ratio = Column(Float)
+    pb_ratio = Column(Float)
+    total_mv = Column(Float)
+    circ_mv = Column(Float)
+    change_60d = Column(Float)
+    high_52w = Column(Float)
+    low_52w = Column(Float)
+    data_source = Column(String(50))
+    fetched_at = Column(DateTime, default=datetime.now, index=True)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'code': self.code,
+            'name': self.name,
+            'price': self.price,
+            'change_pct': self.change_pct,
+            'change_amount': self.change_amount,
+            'volume': self.volume,
+            'amount': self.amount,
+            'volume_ratio': self.volume_ratio,
+            'turnover_rate': self.turnover_rate,
+            'amplitude': self.amplitude,
+            'open_price': self.open_price,
+            'high': self.high,
+            'low': self.low,
+            'pre_close': self.pre_close,
+            'pe_ratio': self.pe_ratio,
+            'pb_ratio': self.pb_ratio,
+            'total_mv': self.total_mv,
+            'circ_mv': self.circ_mv,
+            'change_60d': self.change_60d,
+            'high_52w': self.high_52w,
+            'low_52w': self.low_52w,
+            'data_source': self.data_source,
+            'fetched_at': self.fetched_at.isoformat() if self.fetched_at else None,
+        }
+
+
 class DatabaseManager:
     """
     数据库管理器 - 单例模式
@@ -2108,6 +2170,143 @@ class DatabaseManager:
                 for r in by_model_rows
             ],
         }
+
+    # ------------------------------------------------------------------
+    # 实时行情缓存
+    # ------------------------------------------------------------------
+
+    def get_realtime_quote_cache(
+        self,
+        code: str,
+        max_age_seconds: int = 900,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        读取单只股票的实时行情缓存。
+
+        Args:
+            code: 股票代码
+            max_age_seconds: 缓存最大有效期（秒），默认 15 分钟
+
+        Returns:
+            缓存字典，过期或不存在时返回 None
+        """
+        with self.get_session() as session:
+            row = session.execute(
+                select(RealtimeQuoteCache).where(RealtimeQuoteCache.code == code)
+            ).scalar_one_or_none()
+
+            if row is None:
+                return None
+
+            age = (datetime.now() - row.fetched_at).total_seconds()
+            if age > max_age_seconds:
+                return None
+
+            return row.to_dict()
+
+    def get_all_realtime_cache(
+        self,
+        max_age_seconds: int = 900,
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        读取全部有效实时行情缓存（批量，供扫描场景使用）。
+
+        Returns:
+            {code: quote_dict} 映射，只包含未过期的记录
+        """
+        cutoff = datetime.now() - timedelta(seconds=max_age_seconds)
+        with self.get_session() as session:
+            rows = session.execute(
+                select(RealtimeQuoteCache).where(
+                    RealtimeQuoteCache.fetched_at >= cutoff
+                )
+            ).scalars().all()
+
+            return {row.code: row.to_dict() for row in rows}
+
+    def save_realtime_quote_batch(
+        self,
+        records: List[Dict[str, Any]],
+        source: str = "akshare_em",
+    ) -> int:
+        """
+        批量写入实时行情缓存（UPSERT：已存在则更新）。
+
+        Args:
+            records: 列表，每项至少含 'code' 字段
+            source: 数据来源标识
+
+        Returns:
+            写入/更新的记录数
+        """
+        if not records:
+            return 0
+
+        now = datetime.now()
+        saved = 0
+        with self.get_session() as session:
+            for rec in records:
+                code = rec.get('code')
+                if not code:
+                    continue
+
+                stmt = sqlite_insert(RealtimeQuoteCache).values(
+                    code=code,
+                    name=rec.get('name'),
+                    price=rec.get('price'),
+                    change_pct=rec.get('change_pct'),
+                    change_amount=rec.get('change_amount'),
+                    volume=rec.get('volume'),
+                    amount=rec.get('amount'),
+                    volume_ratio=rec.get('volume_ratio'),
+                    turnover_rate=rec.get('turnover_rate'),
+                    amplitude=rec.get('amplitude'),
+                    open_price=rec.get('open_price'),
+                    high=rec.get('high'),
+                    low=rec.get('low'),
+                    pre_close=rec.get('pre_close'),
+                    pe_ratio=rec.get('pe_ratio'),
+                    pb_ratio=rec.get('pb_ratio'),
+                    total_mv=rec.get('total_mv'),
+                    circ_mv=rec.get('circ_mv'),
+                    change_60d=rec.get('change_60d'),
+                    high_52w=rec.get('high_52w'),
+                    low_52w=rec.get('low_52w'),
+                    data_source=source,
+                    fetched_at=now,
+                )
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['code'],
+                    set_={
+                        'name': stmt.excluded.name,
+                        'price': stmt.excluded.price,
+                        'change_pct': stmt.excluded.change_pct,
+                        'change_amount': stmt.excluded.change_amount,
+                        'volume': stmt.excluded.volume,
+                        'amount': stmt.excluded.amount,
+                        'volume_ratio': stmt.excluded.volume_ratio,
+                        'turnover_rate': stmt.excluded.turnover_rate,
+                        'amplitude': stmt.excluded.amplitude,
+                        'open_price': stmt.excluded.open_price,
+                        'high': stmt.excluded.high,
+                        'low': stmt.excluded.low,
+                        'pre_close': stmt.excluded.pre_close,
+                        'pe_ratio': stmt.excluded.pe_ratio,
+                        'pb_ratio': stmt.excluded.pb_ratio,
+                        'total_mv': stmt.excluded.total_mv,
+                        'circ_mv': stmt.excluded.circ_mv,
+                        'change_60d': stmt.excluded.change_60d,
+                        'high_52w': stmt.excluded.high_52w,
+                        'low_52w': stmt.excluded.low_52w,
+                        'data_source': stmt.excluded.data_source,
+                        'fetched_at': stmt.excluded.fetched_at,
+                    },
+                )
+                session.execute(stmt)
+                saved += 1
+
+        logger.debug("[RealtimeCache] UPSERT %d 条实时行情缓存 (source=%s)", saved, source)
+        return saved
 
 
 # 便捷函数

@@ -1,0 +1,55 @@
+# Oversold Rebound Candidates Strategy / 超跌反弹候选
+# Stocks with largest recent declines — potential mean-reversion bounce targets.
+
+name: oversold_rebound
+display_name: 超跌反弹候选
+description: 筛选近期跌幅最大且均线走平的股票，寻找超跌反弹机会。适合波段操作，不适合趋势持有。
+category: reversal
+core_rules: [1, 4, 5]
+required_tools:
+  - get_daily_history
+  - analyze_trend
+  - search_stock_news
+aliases: [超跌反弹, 跌幅榜, 超跌股, 反弹候选]
+default_priority: 58
+market_regimes: [trending_down, sideways]
+
+instructions: |
+  **超跌反弹候选（Oversold Rebound Candidates Strategy）**
+
+  信号判定标准：
+
+  1. **跌幅筛选**：
+     - 使用 `get_daily_history`（20日和60日）计算区间跌幅。
+     - 近20日跌幅 > 20%：短期超跌。
+     - 近60日跌幅 > 35%：中期超跌，反弹空间更大。
+     - 选取全市场跌幅排名前 10-20% 的股票作为候选池。
+
+  2. **企稳信号**（关联理念4：买点偏好）：
+     - 近5日跌幅 < 3%（下跌动能减弱，开始企稳）。
+     - MA20 斜率趋于平缓（不再急剧下行）。
+     - 出现底部反转 K 线形态（锤子线、十字星）。
+     - `analyze_trend` 显示近期低点抬高。
+
+  3. **超跌程度量化**：
+     - 乖离率（bias）= (close - MA20) / MA20 × 100%
+     - 乖离率 < -15%：轻度超跌。
+     - 乖离率 < -25%：中度超跌。
+     - 乖离率 < -35%：重度超跌，均值回归概率大。
+
+  4. **风险过滤**（关联理念5：风险排查，此处尤其重要）：
+     - `search_stock_news` 确认跌幅非由重大利空（退市风险、造假、重大诉讼）引起。
+     - 排除 ST 股、*ST 股。
+     - 排除成交量极度萎缩（流动性风险）的个股。
+     - 基本面无持续恶化迹象。
+
+  5. **量能确认**：
+     - 超跌后出现放量阳线是最强的反弹启动信号。
+     - volume_ratio > 1.5 配合涨幅 > 2%：可介入。
+
+  评分调整：
+  - 近60日跌幅 > 35% + 乖离率 < -25% + 企稳信号：sentiment_score +10
+  - 近20日跌幅 > 20% + 止跌形态：sentiment_score +7
+  - 放量阳线确认反弹启动：额外 +5
+  - 在 `pattern_analysis` 和 `buy_reason` 中注明"超跌反弹"及具体跌幅数据。
+  - 仓位建议：轻仓（2-3成），反弹目标看 MA20。严格止损在近期低点下方 3%。

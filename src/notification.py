@@ -1533,6 +1533,30 @@ class NotificationService(
                 f"{snapshot.get('turnover_rate', 'N/A')} | {display_source} |",
             ])
 
+        period_returns = snapshot.get('period_returns')
+        if period_returns:
+            def _fmt_pct(v):
+                if v is None:
+                    return 'N/A'
+                sign = '+' if v > 0 else ''
+                return f"{sign}{v:.2f}%"
+
+            headers = []
+            values = []
+            for key, label in [('3d', '3日'), ('5d', '5日'), ('10d', '10日'), ('20d', '20日'), ('30d', '30日')]:
+                if key in period_returns:
+                    headers.append(label)
+                    values.append(_fmt_pct(period_returns[key]))
+            if headers:
+                lines.extend([
+                    "",
+                    "**区间涨幅**",
+                    "",
+                    "| " + " | ".join(headers) + " |",
+                    "|" + "------|" * len(headers),
+                    "| " + " | ".join(values) + " |",
+                ])
+
         lines.append("")
 
     def _should_use_image_for_channel(

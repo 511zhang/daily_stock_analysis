@@ -1868,6 +1868,10 @@ class GeminiAnalyzer:
                 "source": getattr(realtime.get('source'), 'value', realtime.get('source', 'N/A')),
             })
 
+        period_returns = context.get('period_returns')
+        if period_returns:
+            snapshot['period_returns'] = period_returns
+
         return snapshot
 
     def _check_content_integrity(self, result: AnalysisResult) -> Tuple[bool, List[str]]:

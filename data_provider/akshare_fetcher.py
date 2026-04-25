@@ -825,7 +825,12 @@ class AkshareFetcher(BaseFetcher):
     def _get_stock_realtime_quote_em(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         """
         获取普通 A 股实时行情数据（东方财富数据源）
-        
+
+        缓存策略（三层）：
+        1. DB 缓存（realtime_quote_cache 表，TTL=15分钟）：优先读取，命中即返回
+        2. 内存缓存（_realtime_cache，进程内，TTL=20分钟）：DB 未命中时尝试内存全量数据
+        3. 实时 API（ak.stock_zh_a_spot_em）：内存也未命中时拉取，写回 DB 和内存
+
         数据来源：ak.stock_zh_a_spot_em()
         优点：数据最全，含量比、换手率、市盈率、市净率、总市值、流通市值等
         缺点：全量拉取，数据量大，容易超时/限流
@@ -833,63 +838,146 @@ class AkshareFetcher(BaseFetcher):
         import akshare as ak
         circuit_breaker = get_realtime_circuit_breaker()
         source_key = "akshare_em"
-        
+
         try:
-            # 检查缓存
+            # ── 第 1 层：DB 缓存 ────────────────────────────────────────
+            try:
+                from src.storage import get_db
+                db = get_db()
+                cached = db.get_realtime_quote_cache(stock_code, max_age_seconds=900)
+                if cached:
+                    logger.debug(
+                        "[DB缓存命中] A股实时行情 %s，fetched_at=%s",
+                        stock_code, cached.get('fetched_at'),
+                    )
+                    return UnifiedRealtimeQuote(
+                        code=stock_code,
+                        name=cached.get('name') or '',
+                        source=RealtimeSource.AKSHARE_EM,
+                        price=cached.get('price'),
+                        change_pct=cached.get('change_pct'),
+                        change_amount=cached.get('change_amount'),
+                        volume=cached.get('volume'),
+                        amount=cached.get('amount'),
+                        volume_ratio=cached.get('volume_ratio'),
+                        turnover_rate=cached.get('turnover_rate'),
+                        amplitude=cached.get('amplitude'),
+                        open_price=cached.get('open_price'),
+                        high=cached.get('high'),
+                        low=cached.get('low'),
+                        pre_close=cached.get('pre_close'),
+                        pe_ratio=cached.get('pe_ratio'),
+                        pb_ratio=cached.get('pb_ratio'),
+                        total_mv=cached.get('total_mv'),
+                        circ_mv=cached.get('circ_mv'),
+                        change_60d=cached.get('change_60d'),
+                        high_52w=cached.get('high_52w'),
+                        low_52w=cached.get('low_52w'),
+                    )
+            except Exception as db_err:
+                logger.debug("[DB缓存] 读取失败，降级到内存缓存: %s", db_err)
+
+            # ── 第 2 层：内存缓存 ───────────────────────────────────────
             current_time = time.time()
-            if (_realtime_cache['data'] is not None and 
-                current_time - _realtime_cache['timestamp'] < _realtime_cache['ttl']):
+            if (_realtime_cache['data'] is not None and
+                    current_time - _realtime_cache['timestamp'] < _realtime_cache['ttl']):
                 df = _realtime_cache['data']
                 cache_age = int(current_time - _realtime_cache['timestamp'])
-                logger.debug(f"[缓存命中] A股实时行情(东财) - 缓存年龄 {cache_age}s/{_realtime_cache['ttl']}s")
+                logger.debug(
+                    "[内存缓存命中] A股实时行情(东财) - 缓存年龄 %ds/%ds",
+                    cache_age, _realtime_cache['ttl'],
+                )
             else:
-                # 触发全量刷新
-                logger.info(f"[缓存未命中] 触发全量刷新 A股实时行情(东财)")
+                # ── 第 3 层：实时 API ───────────────────────────────────
+                logger.info("[缓存未命中] 触发全量刷新 A股实时行情(东财)")
                 last_error: Optional[Exception] = None
                 df = None
                 for attempt in range(1, 3):
                     try:
-                        # 防封禁策略
                         self._set_random_user_agent()
                         self._enforce_rate_limit()
 
-                        logger.info(f"[API调用] ak.stock_zh_a_spot_em() 获取A股实时行情... (attempt {attempt}/2)")
-                        import time as _time
-                        api_start = _time.time()
-
+                        logger.info(
+                            "[API调用] ak.stock_zh_a_spot_em() 获取A股实时行情... (attempt %d/2)",
+                            attempt,
+                        )
+                        api_start = time.time()
                         df = ak.stock_zh_a_spot_em()
-
-                        api_elapsed = _time.time() - api_start
-                        logger.info(f"[API返回] ak.stock_zh_a_spot_em 成功: 返回 {len(df)} 只股票, 耗时 {api_elapsed:.2f}s")
+                        api_elapsed = time.time() - api_start
+                        logger.info(
+                            "[API返回] ak.stock_zh_a_spot_em 成功: 返回 %d 只股票, 耗时 %.2fs",
+                            len(df), api_elapsed,
+                        )
                         circuit_breaker.record_success(source_key)
                         break
                     except Exception as e:
                         last_error = e
-                        logger.info(f"[API错误] ak.stock_zh_a_spot_em 获取失败 (attempt {attempt}/2): {e}")
+                        logger.info(
+                            "[API错误] ak.stock_zh_a_spot_em 获取失败 (attempt %d/2): %s",
+                            attempt, e,
+                        )
                         time.sleep(min(2 ** attempt, 5))
 
-                # 更新缓存：成功缓存数据；失败也缓存空数据，避免同一轮任务对同一接口反复请求
                 if df is None:
-                    logger.info(f"[API错误] ak.stock_zh_a_spot_em 最终失败: {last_error}")
+                    logger.info("[API错误] ak.stock_zh_a_spot_em 最终失败: %s", last_error)
                     circuit_breaker.record_failure(source_key, str(last_error))
                     df = pd.DataFrame()
+
+                # 更新内存缓存
                 _realtime_cache['data'] = df
                 _realtime_cache['timestamp'] = current_time
-                logger.info(f"[缓存更新] A股实时行情(东财) 缓存已刷新，TTL={_realtime_cache['ttl']}s")
+                logger.info(
+                    "[内存缓存更新] A股实时行情(东财) 缓存已刷新，TTL=%ds",
+                    _realtime_cache['ttl'],
+                )
+
+                # 批量写入 DB 缓存
+                if not df.empty:
+                    try:
+                        from src.storage import get_db
+                        db = get_db()
+                        records = []
+                        for _, r in df.iterrows():
+                            records.append({
+                                'code': str(r.get('代码', '')),
+                                'name': str(r.get('名称', '')),
+                                'price': safe_float(r.get('最新价')),
+                                'change_pct': safe_float(r.get('涨跌幅')),
+                                'change_amount': safe_float(r.get('涨跌额')),
+                                'volume': safe_float(r.get('成交量')),
+                                'amount': safe_float(r.get('成交额')),
+                                'volume_ratio': safe_float(r.get('量比')),
+                                'turnover_rate': safe_float(r.get('换手率')),
+                                'amplitude': safe_float(r.get('振幅')),
+                                'open_price': safe_float(r.get('今开')),
+                                'high': safe_float(r.get('最高')),
+                                'low': safe_float(r.get('最低')),
+                                'pre_close': safe_float(r.get('昨收')),
+                                'pe_ratio': safe_float(r.get('市盈率-动态')),
+                                'pb_ratio': safe_float(r.get('市净率')),
+                                'total_mv': safe_float(r.get('总市值')),
+                                'circ_mv': safe_float(r.get('流通市值')),
+                                'change_60d': safe_float(r.get('60日涨跌幅')),
+                                'high_52w': safe_float(r.get('52周最高')),
+                                'low_52w': safe_float(r.get('52周最低')),
+                            })
+                        n = db.save_realtime_quote_batch(records, source="akshare_em")
+                        logger.info("[DB缓存更新] 已写入 %d 条实时行情到 realtime_quote_cache", n)
+                    except Exception as db_save_err:
+                        logger.warning("[DB缓存] 写入失败（不影响本次查询）: %s", db_save_err)
 
             if df is None or df.empty:
-                logger.info(f"[实时行情] A股实时行情数据为空，跳过 {stock_code}")
+                logger.info("[实时行情] A股实时行情数据为空，跳过 %s", stock_code)
                 return None
-            
-            # 查找指定股票
+
+            # 从内存 DataFrame 中查找目标股票
             row = df[df['代码'] == stock_code]
             if row.empty:
-                logger.info(f"[API返回] 未找到股票 {stock_code} 的实时行情")
+                logger.info("[API返回] 未找到股票 %s 的实时行情", stock_code)
                 return None
-            
+
             row = row.iloc[0]
-            
-            # 使用 realtime_types.py 中的统一转换函数
+
             quote = UnifiedRealtimeQuote(
                 code=stock_code,
                 name=str(row.get('名称', '')),
@@ -913,13 +1001,16 @@ class AkshareFetcher(BaseFetcher):
                 high_52w=safe_float(row.get('52周最高')),
                 low_52w=safe_float(row.get('52周最低')),
             )
-            
-            logger.info(f"[实时行情-东财] {stock_code} {quote.name}: 价格={quote.price}, 涨跌={quote.change_pct}%, "
-                       f"量比={quote.volume_ratio}, 换手率={quote.turnover_rate}%")
+
+            logger.info(
+                "[实时行情-东财] %s %s: 价格=%s, 涨跌=%s%%, 量比=%s, 换手率=%s%%",
+                stock_code, quote.name, quote.price, quote.change_pct,
+                quote.volume_ratio, quote.turnover_rate,
+            )
             return quote
-            
+
         except Exception as e:
-            logger.info(f"[API错误] 获取 {stock_code} 实时行情(东财)失败: {e}")
+            logger.info("[API错误] 获取 %s 实时行情(东财)失败: %s", stock_code, e)
             circuit_breaker.record_failure(source_key, str(e))
             return None
     

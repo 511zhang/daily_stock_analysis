@@ -1,0 +1,57 @@
+# Shrinking Decline End Strategy / 缩量下跌末期
+# Volume shrinks persistently during decline — selling pressure exhausted, bottom nearing.
+
+name: shrink_decline_end
+display_name: 缩量下跌末期
+description: 下跌过程中量能持续萎缩至极低水平，表明抛压耗尽，底部区域信号。配合止跌 K 线形态使用效果更佳。
+category: reversal
+core_rules: [4, 5, 6]
+required_tools:
+  - get_daily_history
+  - analyze_trend
+aliases: [缩量下跌, 地量见底, 抛压耗尽, 缩量筑底]
+default_priority: 60
+market_regimes: [trending_down]
+
+instructions: |
+  **缩量下跌末期（Shrinking Decline End Strategy）**
+
+  信号判定标准：
+
+  1. **持续下跌确认**：
+     - 使用 `get_daily_history`（40日）。
+     - 股价从近期高点下跌幅度 > 20%（中级调整）。
+     - `analyze_trend` → trend_status 为 BEAR 或 STRONG_BEAR。
+
+  2. **量能萎缩趋势**（关联理念6：量价配合反向确认）：
+     - 统计近20日成交量变化趋势。
+     - 下跌过程中量能逐日递减，呈现明显萎缩形态。
+     - 当前 5 日均量 < 20 日均量的 50%（量能萎缩至半数以下）。
+     - 当前 5 日均量 < 20 日均量的 30%（接近"地量"状态）。
+
+  3. **地量信号**（极强底部信号）：
+     - 当日成交量为近 60 日最低水平（地量）。
+     - 俗语"地量见地价"，即成交萎缩至极致后往往触底。
+     - volume_ratio < 0.3 为地量参考阈值。
+
+  4. **止跌形态确认**（关联理念4：买点偏好）：
+     - 量能萎缩同时出现以下之一：
+       a. 当日收阳（pct_chg > 0）
+       b. 出现长下影线（影线 > 实体 2 倍）
+       c. 价格守住前期支撑位
+     - 使用 `analyze_trend` → support_levels 确认支撑。
+
+  5. **反弹信号确认**：
+     - 次日量能有所放大（volume_ratio > 1.2），价格收阳。
+     - 这是"地量反弹"确认，可以轻仓介入。
+
+  6. **风险控制**（关联理念5）：
+     - `search_stock_news` 确认无重大持续利空。
+     - 避免基本面已经严重恶化的个股（量缩可能是无人接盘）。
+
+  评分调整：
+  - 量能萎缩 50% 以下 + 止跌形态：sentiment_score +7
+  - 接近地量（volume_ratio < 0.3）+ 止跌形态：sentiment_score +10
+  - 次日放量确认阳线：额外 +5
+  - 在 `pattern_analysis` 和 `buy_reason` 中注明"缩量下跌末期，地量见底信号"。
+  - 仓位建议：轻仓试探，确认后加仓。止损设在近期低点下方 2%。

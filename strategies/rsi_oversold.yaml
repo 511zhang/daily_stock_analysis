@@ -1,0 +1,56 @@
+# RSI Oversold Rebound Strategy / RSI 超卖反弹
+# RSI drops below 30 and starts to recover — classic mean-reversion entry.
+
+name: rsi_oversold
+display_name: RSI超卖反弹
+description: RSI 跌破 30 后开始回升，捕捉超卖反弹机会。适合震荡行情中寻找低位介入点。
+category: reversal
+core_rules: [1, 4, 5]
+required_tools:
+  - get_daily_history
+  - analyze_trend
+aliases: [RSI超卖, 超卖反弹, rsi反弹]
+default_priority: 50
+market_regimes: [sideways, trending_down]
+
+instructions: |
+  **RSI 超卖反弹（RSI Oversold Rebound Strategy）**
+
+  计算方式（基于 get_daily_history 收盘价序列，14日周期）：
+  - 平均涨幅 = 过去14日收涨天数的平均涨幅
+  - 平均跌幅 = 过去14日收跌天数的平均跌幅（取绝对值）
+  - RS = 平均涨幅 / 平均跌幅
+  - RSI = 100 - (100 / (1 + RS))
+
+  信号判定标准：
+
+  1. **超卖识别**：
+     - 使用 `get_daily_history`（30日）计算 RSI(14)。
+     - RSI < 30 表示超卖区间。
+     - RSI < 20 为极度超卖，反弹力度通常更强。
+     - 需确认 RSI 已触底并开始回升（今日 RSI > 昨日 RSI）。
+
+  2. **价格配合**（关联理念4：买点偏好）：
+     - 当日收阳，最好带下影线。
+     - 价格接近支撑位（MA20 或前期低点）。
+     - `analyze_trend` 检查是否有支撑信号。
+
+  3. **量能确认**（关联理念3：效率优先）：
+     - 超卖低点出现地量后，反弹首日量能放大。
+     - volume_ratio > 1.2 为积极信号。
+
+  4. **背离检测**（更强信号）：
+     - 价格创新低但 RSI 未创新低（底背离）。
+     - 若存在底背离，sentiment_score 额外加分。
+
+  5. **风险过滤**（关联理念5：风险排查）：
+     - `search_stock_news` 确认无持续利空。
+     - 避免基本面严重恶化的股票（RSI 超卖可能是正当下跌）。
+
+  评分调整：
+  - RSI(14) < 30 且回升：sentiment_score +8
+  - RSI(14) < 20 极度超卖：额外 +4
+  - 底背离确认：额外 +6
+  - 配合放量阳线：额外 +3
+  - 在 `buy_reason` 和 `pattern_analysis` 中注明"RSI超卖反弹"。
+  - 止损设在近期低点下方 2%，目标看 RSI 回到 50。

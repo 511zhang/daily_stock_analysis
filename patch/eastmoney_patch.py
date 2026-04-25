@@ -159,6 +159,8 @@ def eastmoney_patch():
                 "fund.eastmoney.com",
                 "push2.eastmoney.com",
                 "push2his.eastmoney.com",
+                "datacenter.eastmoney.com",
+                "push2delay.eastmoney.com",
             ]
         )
         if not is_target:
@@ -168,12 +170,19 @@ def eastmoney_patch():
         # 处理 Headers：确保不破坏业务代码传入的 headers
         headers = kwargs.get("headers", {})
         headers["User-Agent"] = user_agent
+        # 注入浏览器必要头，降低被识别为爬虫的概率
+        headers.setdefault("Referer", "https://quote.eastmoney.com/")
+        headers.setdefault("Origin", "https://quote.eastmoney.com")
+        headers.setdefault("Accept", "*/*")
+        headers.setdefault("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+        headers.setdefault("Connection", "keep-alive")
+        # 尝试注入 NID；失败时仅用浏览器头，不阻塞请求
         nid = _get_nid(user_agent)
         if nid:
             headers["Cookie"] = f"nid18={nid}"
         kwargs["headers"] = headers
         # 随机休眠，降低被封风险
-        sleep_time = random.uniform(1, 4)
+        sleep_time = random.uniform(2, 5)
         time.sleep(sleep_time)
         return original_request(self, method, url, **kwargs)
 

@@ -1,0 +1,58 @@
+# Strong Stock Ranking Strategy / 强势股排行
+# Stocks with largest recent gains while maintaining healthy trend structure.
+
+name: strong_stock_rank
+display_name: 强势股排行
+description: 筛选近期涨幅领先且均线多头排列的强势股，顺势而为捕捉趋势龙头。
+category: trend
+core_rules: [2, 3, 7]
+required_tools:
+  - get_daily_history
+  - analyze_trend
+  - get_realtime_quote
+aliases: [强势股, 涨幅榜, 领涨股, 趋势龙头]
+default_priority: 30
+market_regimes: [trending_up]
+
+instructions: |
+  **强势股排行（Strong Stock Ranking Strategy）**
+
+  信号判定标准：
+
+  1. **涨幅排行筛选**：
+     - 使用 `get_daily_history` 计算区间涨幅。
+     - 近10日涨幅 > 15%：短线强势。
+     - 近20日涨幅 > 25%：中线强势。
+     - 近60日涨幅 > 50%：长线龙头。
+     - 优先选择同期涨幅远超大盘的个股（相对强度高）。
+
+  2. **趋势结构完整**（关联理念2：趋势交易）：
+     - `analyze_trend` 确认 MA5 > MA10 > MA20 多头排列。
+     - 均线斜率持续向上，不出现死叉。
+     - 价格在所有均线上方运行。
+
+  3. **量价配合**（关联理念3：效率优先）：
+     - 上涨过程中量能放大，回调时量能萎缩。
+     - 近5日平均成交额 > 1亿（流动性充足）。
+     - `get_realtime_quote` 确认当前量价状态。
+
+  4. **乖离率控制**（关联理念7：强势股放宽标准）：
+     - 普通股：MA5 乖离率 < 8%。
+     - 龙头股（板块内成交额最大）：可放宽至 12%。
+     - 若乖离率过高，等待回踩均线后再介入。
+
+  5. **位置评估**：
+     - 处于上升趋势中，非历史高位区域（涨幅 < 200%）：优先。
+     - 已处于历史高位但板块景气度强：可关注，风险较高。
+     - 使用 `analyze_trend` → resistance_levels 判断上方压力。
+
+  6. **风险排查**（关联理念5）：
+     - `search_stock_news` 确认涨势有基本面或政策支持。
+     - 关注是否有商誉减值、业绩变脸等潜在风险。
+
+  评分调整：
+  - 近20日涨幅 > 25% + 均线多头 + 量价配合：sentiment_score +12
+  - 近10日涨幅 > 15% + 多头结构：sentiment_score +9
+  - 板块内涨幅第一（板块龙头）：额外 +5
+  - 在 `buy_reason` 中注明"强势趋势股"及区间涨幅。
+  - 理想买点：回踩 MA5 时介入，不追涨过热。

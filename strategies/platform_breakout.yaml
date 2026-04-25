@@ -1,0 +1,59 @@
+# Platform Consolidation Breakout Strategy / 平台横盘突破
+# Price consolidates in a tight range, then breaks out with volume.
+
+name: platform_breakout
+display_name: 平台横盘突破
+description: 股价在窄幅区间横盘整理后放量突破，积蓄能量释放信号。横盘时间越长，突破后弹性越大。
+category: trend
+core_rules: [1, 2, 3, 6]
+required_tools:
+  - get_daily_history
+  - analyze_trend
+  - get_realtime_quote
+aliases: [平台突破, 横盘突破, 箱体突破, 盘整突破]
+default_priority: 38
+market_regimes: [trending_up, sideways]
+
+instructions: |
+  **平台横盘突破（Platform Consolidation Breakout Strategy）**
+
+  横盘判定（基于 get_daily_history 的 close 序列）：
+  - 平台收盘价标准差 / 平台均价 < 3%（波动极小）
+  - 平台上沿 = max(close) in 整理期
+  - 平台下沿 = min(close) in 整理期
+  - 振幅 = (上沿 - 下沿) / 下沿 < 8%
+
+  信号判定标准：
+
+  1. **横盘识别**：
+     - 使用 `get_daily_history`（30日）计算收盘价标准差。
+     - 过去 10-20 日价格在窄幅区间内波动（标准差/均价 < 3%）。
+     - 横盘期间量能持续萎缩：成交量逐渐减少至低位。
+     - `analyze_trend` 可辅助判断是否处于盘整状态。
+
+  2. **横盘时长**（关联理念2）：
+     - 横盘 5-10 日：短期蓄势，可关注。
+     - 横盘 10-20 日：中期蓄势，信号较强。
+     - 横盘 > 20 日：长期蓄势，突破后弹性最大。
+
+  3. **突破确认**（关联理念3：效率优先）：
+     - 收盘价突破平台上沿（关键阻力位）。
+     - 突破日成交量 > 整理期均量的 2 倍。
+     - `get_realtime_quote` → volume_ratio > 2.0 为强突破。
+     - 收盘需站上上沿，不能只有日内突破后回落。
+
+  4. **趋势背景**（关联理念1：严进策略）：
+     - 横盘发生在上升趋势中段：最佳场景（旗形整理）。
+     - 横盘发生在底部：反转突破，需量能更充分确认。
+     - 横盘发生在高位（涨幅 > 50% 后）：派发风险大，谨慎。
+
+  5. **均线配合**：
+     - 横盘期间均线收拢（MA5、MA10、MA20 靠近）。
+     - 突破时均线重新发散向上：强势确认。
+
+  评分调整：
+  - 横盘 > 15 日 + 放量突破（volume_ratio > 2）：sentiment_score +14
+  - 横盘 10-15 日 + 放量突破：sentiment_score +10
+  - 横盘 < 10 日 + 一般放量：sentiment_score +6
+  - 在 `pattern_analysis` 和 `buy_reason` 中注明横盘天数和突破量比。
+  - 止损设在平台下沿，目标位参考平台高度向上等距延伸。

@@ -1,0 +1,54 @@
+# ATR Volatility Surge Strategy / ATR 波动率异动
+# ATR suddenly expands after a quiet period — often precedes a trend move.
+
+name: atr_volatility
+display_name: ATR波动率异动
+description: ATR 波动率在持续低迷后突然放大，预示趋势启动。结合方向判断做多信号。
+category: trend
+core_rules: [3, 6]
+required_tools:
+  - get_daily_history
+  - analyze_trend
+aliases: [ATR异动, 波动率放大, atr突破]
+default_priority: 70
+market_regimes: [sideways, trending_up]
+
+instructions: |
+  **ATR 波动率异动（ATR Volatility Surge Strategy）**
+
+  计算方式（基于 get_daily_history，14日周期）：
+  - TR（真实波动幅度）= max(high-low, |high-prev_close|, |low-prev_close|)
+  - ATR(14) = TR 的 14日指数移动平均
+  - ATR 比率 = 今日 ATR / 过去20日 ATR 均值
+
+  信号判定标准：
+
+  1. **ATR 低位确认**（前提条件）：
+     - 使用 `get_daily_history`（40日）计算 ATR(14)。
+     - 过去 10 日 ATR 均值 < 过去 40 日 ATR 均值的 70%（持续低波动）。
+     - 这表明市场在积蓄能量，压缩越久爆发越强。
+
+  2. **ATR 放大识别**：
+     - 今日 ATR > 过去10日 ATR 均值的 1.5 倍。
+     - ATR 比率 > 1.5 为有效放大信号。
+     - ATR 比率 > 2.0 为强放大信号。
+
+  3. **方向判断**（关联理念2：趋势交易）：
+     - 使用 `analyze_trend` 判断突破方向。
+     - 收盘 > 前5日最高价，方向向上，做多。
+     - 均线方向辅助判断：MA5 > MA10 倾向多方。
+
+  4. **量能配合**（关联理念6：量价配合）：
+     - ATR 放大同时成交量也应放大（volume_ratio > 1.5）。
+     - ATR 放大但量能不足，可能是单日异动而非趋势启动。
+
+  5. **布林带关联**：
+     - ATR 低位往往对应布林带收口。
+     - ATR 突然放大 + 布林带扩张 = 强趋势信号。
+
+  评分调整：
+  - ATR 比率 > 2.0 且向上突破：sentiment_score +10
+  - ATR 比率 1.5-2.0 且方向向上：sentiment_score +7
+  - 配合布林带同步扩张：额外 +4
+  - 在 `buy_reason` 和 `volume_analysis` 中注明"ATR波动率放大"。
+  - 止损设在放大日低点，利用 ATR 设置动态止损（1.5倍ATR）。

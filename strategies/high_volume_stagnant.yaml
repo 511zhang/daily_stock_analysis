@@ -1,0 +1,54 @@
+# High Volume Stagnation Strategy / 高位放量滞涨
+# Volume expands sharply but price barely moves — distribution signal at highs.
+
+name: high_volume_stagnant
+display_name: 高位放量滞涨
+description: 高位成交量大幅放大但价格涨幅极小，暗示主力派发筹码，风险预警信号。
+category: reversal
+core_rules: [3, 5, 6]
+required_tools:
+  - get_daily_history
+  - analyze_trend
+  - get_realtime_quote
+aliases: [放量滞涨, 高位滞涨, 量增价滞, 派发信号]
+default_priority: 75
+market_regimes: [trending_up]
+
+instructions: |
+  **高位放量滞涨（High Volume Stagnation Strategy）**
+
+  本策略主要用于**识别风险**和**提示减仓**，而非买入信号。
+
+  信号判定标准：
+
+  1. **高位确认**：
+     - 使用 `get_daily_history`（60日）判断股价位置。
+     - 当前价格 > 60日最低价的 130%（涨幅已超 30%）。
+     - 或当前价格接近历史高点区间。
+     - `analyze_trend` → trend_status 为 BULL 或 STRONG_BULL。
+
+  2. **放量识别**（关联理念6：量价配合反向信号）：
+     - 使用 `get_realtime_quote` → volume_ratio > 2.0。
+     - 或当日成交量 > 5日均量的 2 倍。
+     - 成交量异常放大（创近期新高）。
+
+  3. **滞涨特征**：
+     - 涨幅 < 2%（或为阴线），但量能极大。
+     - 振幅较大但收盘接近开盘（长上下影线）。
+     - 计算：价格效率 = |pct_chg| / volume_ratio，比值越小，滞涨越严重。
+
+  4. **连续滞涨**（更强预警）：
+     - 连续 2-3 日出现放量滞涨，为明确派发信号。
+     - 结合 `get_daily_history` 分析近5日量价关系。
+
+  5. **技术指标配合**：
+     - MACD 顶背离（价格新高但 MACD 高点下降）。
+     - RSI > 80（超买区间）。
+     - KDJ 高位死叉。
+
+  评分调整：
+  - 高位放量滞涨（单日）：sentiment_score -8（警告）
+  - 连续 2 日放量滞涨：sentiment_score -15（强烈警告）
+  - 同时出现技术指标顶背离：额外 -5
+  - 在 `risk_warnings` 和 `sell_reason` 中注明"高位放量滞涨，注意派发风险"。
+  - 建议操作：减仓或止盈，不建议追高买入。

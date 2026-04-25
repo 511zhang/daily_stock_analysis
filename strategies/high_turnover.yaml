@@ -1,0 +1,59 @@
+# High Turnover / Transaction Volume Ranking Strategy / 成交额排行
+# Stocks with highest recent transaction amounts — liquidity and activity screen.
+
+name: high_turnover
+display_name: 成交额排行
+description: 筛选近期成交额持续居前的活跃股，高成交额代表资金高度关注，流动性好，是趋势股的必要条件。
+category: trend
+core_rules: [3, 6]
+required_tools:
+  - get_daily_history
+  - get_realtime_quote
+  - analyze_trend
+aliases: [成交额排行, 活跃股, 资金活跃, 高换手]
+default_priority: 62
+market_regimes: [trending_up, sideways]
+
+instructions: |
+  **成交额排行（High Turnover / Transaction Volume Ranking Strategy）**
+
+  成交额 vs 成交量区别：
+  - 成交量（volume）：受股价影响，不同价位股票不可比
+  - 成交额（amount）：单位元，跨股票可直接比较，更公平
+
+  信号判定标准：
+
+  1. **成交额绝对水平筛选**：
+     - 使用 `get_daily_history` 获取近5日和近20日 amount 数据。
+     - 日成交额 > 5亿：具备基本流动性。
+     - 日成交额 > 20亿：活跃大资金关注。
+     - 日成交额 > 50亿：超级主力资金介入。
+
+  2. **持续性判断**（更可靠信号）：
+     - 近5日日均成交额 vs 近20日日均成交额。
+     - 近5日均额 > 近20日均额的 150%：资金持续流入，活跃度提升。
+     - 近5日均额 > 近20日均额的 200%：资金快速涌入，值得重点关注。
+
+  3. **成交额与价格配合**（关联理念6）：
+     - 成交额放大 + 价格上涨：积极信号，资金推动。
+     - 成交额放大 + 价格横盘：可能吸筹或分歧。
+     - 成交额放大 + 价格下跌：负面信号，出货嫌疑。
+     - 使用 `analyze_trend` 结合判断。
+
+  4. **换手率参考**：
+     - 换手率 = 成交量 / 流通股本（需基本面数据）
+     - 若无流通股本数据，用成交额相对历史水平代替。
+     - 日换手率 > 5%：活跃换手。
+     - 日换手率 > 10%：高度活跃，短线资金主导。
+
+  5. **流动性用途**：
+     - 成交额排行主要作为**辅助过滤器**：
+       a. 其他策略筛出的候选股，优先选成交额高的。
+       b. 流动性不足（< 1亿/日）的股票，其他信号再好也需谨慎。
+
+  评分调整：
+  - 近5日均成交额 > 20亿：sentiment_score +4
+  - 近5日均成交额 > 50亿：sentiment_score +6
+  - 成交额持续放大（近5日 > 近20日 150%）：额外 +3
+  - 成交额 < 1亿/日（流动性不足）：sentiment_score -5（流动性风险）
+  - 在 `volume_analysis` 中注明成交额绝对值和相对变化。

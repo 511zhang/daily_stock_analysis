@@ -668,6 +668,36 @@ class StockAnalysisPipeline:
                         except (TypeError, ValueError):
                             pass
 
+        # 计算区间涨幅（3/5/10/20/30日），用于推送报告展示
+        try:
+            _code = context.get('code', '')
+            _periods = [3, 5, 10, 20, 30]
+            _hist = self.db.get_latest_data(_code, days=max(_periods) + 2)
+            if _hist and len(_hist) >= 2:
+                _today_close = None
+                _today_dict = enhanced.get('today') or {}
+                if isinstance(_today_dict, dict):
+                    _today_close = _today_dict.get('close')
+                if _today_close is None and realtime_quote:
+                    _today_close = getattr(realtime_quote, 'price', None)
+                if _today_close is None:
+                    _today_close = _hist[0].close
+                _period_returns = {}
+                for _n in _periods:
+                    if len(_hist) > _n:
+                        _base_close = _hist[_n].close
+                        if _base_close and _base_close > 0 and _today_close:
+                            try:
+                                _period_returns[f'{_n}d'] = round(
+                                    (float(_today_close) - float(_base_close)) / float(_base_close) * 100, 2
+                                )
+                            except (TypeError, ValueError, ZeroDivisionError):
+                                pass
+                if _period_returns:
+                    enhanced['period_returns'] = _period_returns
+        except Exception as _e:
+            logger.debug(f"[period_returns] 计算区间涨幅失败: {_e}")
+
         # ETF/index flag for analyzer prompt (Fixes #274)
         enhanced['is_index_etf'] = SearchService.is_index_or_etf(
             context.get('code', ''), enhanced.get('stock_name', stock_name)

@@ -1,0 +1,65 @@
+# Hammer / Morning Star Pattern Strategy / 锤子线与启明星
+# Bullish reversal candlestick patterns at the bottom of a downtrend.
+
+name: hammer_star
+display_name: 锤子线启明星
+description: 识别底部锤子线、倒锤子线、启明星等经典看涨反转 K 线形态，捕捉趋势反转时机。
+category: reversal
+core_rules: [4, 5, 6]
+required_tools:
+  - get_daily_history
+  - analyze_trend
+aliases: [锤子线, 启明星, 看涨K线, 底部反转形态]
+default_priority: 55
+market_regimes: [trending_down, sideways]
+
+instructions: |
+  **锤子线与启明星（Hammer / Morning Star Pattern Strategy）**
+
+  形态定义（基于 get_daily_history 的 open/high/low/close 数据）：
+
+  **锤子线（Hammer）**：
+  - 实体较小（|close - open| / (high - low) < 30%）
+  - 下影线长度 ≥ 实体长度的 2 倍
+  - 上影线极短（< 实体长度的 10%）
+  - 出现在下跌趋势末期
+
+  **倒锤子线（Inverted Hammer）**：
+  - 实体较小，位于 K 线下部
+  - 上影线长度 ≥ 实体长度的 2 倍
+  - 下影线极短
+  - 出现在下跌趋势末期，次日需阳线确认
+
+  **启明星（Morning Star）**：
+  - 第1日：大阴线（实体 > 振幅 60%）
+  - 第2日：小实体 K 线（星），跳空低开
+  - 第3日：大阳线，收盘进入第1日实体 50% 以上
+
+  信号判定标准：
+
+  1. **下跌背景确认**（关联理念2）：
+     - 使用 `analyze_trend` 确认处于下跌趋势（BEAR 或 STRONG_BEAR）。
+     - 至少有 5-10 日下跌先行。
+
+  2. **形态识别**：
+     - 使用 `get_daily_history`（5-10日）计算各 K 线形态参数。
+     - 识别是否符合上述形态定义。
+
+  3. **位置确认**（关联理念4：买点偏好）：
+     - 形态出现在支撑位附近（前期低点、MA20、整数关口）。
+     - `analyze_trend` → support_levels 验证。
+
+  4. **量能配合**（关联理念6：量价配合）：
+     - 锤子线当日量能不需很大，但次日确认阳线需量能放大。
+     - volume_ratio > 1.2 为积极确认。
+
+  5. **后续确认**（关联理念5：风险排查）：
+     - 次日开盘在锤子线实体上方：确认信号。
+     - `search_stock_news` 无持续利空。
+
+  评分调整：
+  - 标准锤子线 + 位置在支撑位：sentiment_score +8
+  - 启明星三日形态完整：sentiment_score +12
+  - 伴随放量确认阳线：额外 +4
+  - 在 `pattern_analysis` 和 `buy_reason` 中注明具体形态名称。
+  - 止损设在形态最低点下方 1-2%。

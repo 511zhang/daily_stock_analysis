@@ -1,0 +1,60 @@
+# Limit-Up Count Strategy / 涨停板统计
+# Counts recent limit-up days to identify market leaders and hot-money stocks.
+
+name: limit_up_count
+display_name: 涨停板统计
+description: 统计近期涨停次数，识别热点龙头股。多次涨停（连板）往往代表最强市场共识，但也伴随高风险。
+category: trend
+core_rules: [2, 3, 7]
+required_tools:
+  - get_daily_history
+  - analyze_trend
+  - get_realtime_quote
+  - search_stock_news
+aliases: [涨停统计, 连板, 涨停板, 强势龙头]
+default_priority: 28
+market_regimes: [trending_up]
+
+instructions: |
+  **涨停板统计（Limit-Up Count Strategy）**
+
+  涨停判断：
+  - 沪市主板：pct_chg ≥ 9.9%
+  - 科创板/创业板：pct_chg ≥ 19.9%（20cm）
+  - 北交所：pct_chg ≥ 29.9%（30cm）
+
+  信号判定标准：
+
+  1. **涨停次数统计**：
+     - 使用 `get_daily_history`（30日）统计涨停天数。
+     - 近30日涨停 1 次：普通关注。
+     - 近30日涨停 2-3 次：热点龙头。
+     - 近30日涨停 ≥ 4 次（连续或间歇）：超强龙头，市场高度共识。
+     - 连续涨停（连板）数量：2板、3板、4板以上级别逐步提升。
+
+  2. **连板质量判断**（关联理念7：强势趋势股放宽）：
+     - 连板中途无大跌（非涨停日跌幅 < 3%）：健康连板。
+     - 连板中途有大跌后重新连板："断板后复板"，弹性强。
+     - 使用 `get_daily_history` 逐日分析涨停日和非涨停日表现。
+
+  3. **市场热点背景**（关联理念5：风险排查）：
+     - `search_stock_news` 确认涨停有题材支撑（政策、业绩、行业热点）。
+     - 无题材支撑的孤立涨停，回落风险大。
+     - 板块内多股涨停（共振）：题材强度高，持续性好。
+
+  4. **资金承接能力**（关联理念3：效率优先）：
+     - 成交额：日成交额 > 5亿（充足资金介入）。
+     - 流通市值：20-100亿区间的股票连板弹性最大。
+
+  5. **位置与风险评估**：
+     - 低位（距阶段底部涨幅 < 50%）首板：安全边际高。
+     - 高位（距阶段底部涨幅 > 100%）多板：高风险高收益，严控仓位。
+
+  评分调整：
+  - 连续 2 板以上（含当日）：sentiment_score +10
+  - 连续 3 板以上：sentiment_score +14
+  - 近30日涨停 ≥ 4 次（非连续）：sentiment_score +8
+  - 高位（> 100% 涨幅）连板：额外风险提示 -3（谨慎追高）
+  - 在 `buy_reason` 中注明连板数量、涨停日期及题材。
+  - 买点：当日打板（涨停板介入）或次日高开低走回落后择机。
+  - 止损：跌破前一日低点立即止损。

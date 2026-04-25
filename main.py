@@ -902,6 +902,16 @@ def main() -> int:
                 run_full_analysis(runtime_config, args, scheduled_stock_codes)
 
             background_tasks = []
+
+            # 实时行情缓存定时刷新（盘中每 15 分钟，非交易时段自动跳过）
+            from data_provider.cache_scheduler import make_cache_refresh_task
+            background_tasks.append({
+                "task": make_cache_refresh_task(),
+                "interval_seconds": 900,  # 15 分钟
+                "run_immediately": True,
+                "name": "realtime_cache_refresh",
+            })
+
             if getattr(config, 'agent_event_monitor_enabled', False):
                 from src.agent.events import build_event_monitor_from_config, run_event_monitor_once
 

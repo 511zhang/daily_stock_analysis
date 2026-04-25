@@ -1,0 +1,51 @@
+# Consecutive Rise / Decline Strategy / 连续涨跌筛选
+# Stock rises (or falls) for N consecutive days — trend persistence signal.
+
+name: consecutive_rise
+display_name: 连续涨跌筛选
+description: 连续 N 日收阳（或收阴），识别持续趋势动能。连续涨停更为强势，连续阴线末期可能反转。
+category: trend
+core_rules: [2, 6]
+required_tools:
+  - get_daily_history
+  - analyze_trend
+aliases: [连续上涨, 连续涨停, 连续阳线, 连续跌筛选]
+default_priority: 65
+market_regimes: [trending_up, trending_down]
+
+instructions: |
+  **连续涨跌筛选（Consecutive Rise/Decline Strategy）**
+
+  信号判定标准：
+
+  1. **连续上涨识别**（做多方向）：
+     - 使用 `get_daily_history`（20日）查看 pct_chg 序列。
+     - 统计连续收阳天数（pct_chg > 0）。
+     - 连续 3 日收阳：持续动能信号。
+     - 连续 5 日收阳：强势趋势，注意是否过热。
+     - 连续涨停（pct_chg ≈ 10%）：龙头股信号，需结合市场热点。
+
+  2. **连续下跌识别**（反转机会）：
+     - 连续 5 日收阴：可能接近短期底部。
+     - 连续 7 日收阴且量能逐渐萎缩：超卖反弹机会大。
+     - 结合 RSI 超卖判断更可靠。
+
+  3. **量能趋势**（关联理念6：量价配合）：
+     - 连续上涨中量能逐日放大：健康上涨，可继续持有/追入。
+     - 连续上涨中量能逐日萎缩：动能衰减，谨慎追高。
+     - 连续下跌中量能逐日萎缩：卖压减轻，底部信号增强。
+
+  4. **乖离率控制**（关联理念1：严进策略）：
+     - 连续上涨后，MA5 乖离率 > 8%，不建议追入。
+     - 等待回踩均线机会（结合"缩量回踩"策略）。
+
+  5. **趋势背景**（关联理念2）：
+     - `analyze_trend` 确认均线多头排列。
+     - 连续上涨发生在大盘强势期更为可靠。
+
+  评分调整：
+  - 连续 3 日收阳 + 均线多头：sentiment_score +6
+  - 连续 5 日收阳 + 量价配合：sentiment_score +10
+  - 连续涨停（≥ 2 板）：sentiment_score +12（同时提示关注高位风险）
+  - 连续 5 日收阴 + 量能萎缩：sentiment_score +5（超卖反弹方向）
+  - 在 `buy_reason` 中注明具体连续天数。

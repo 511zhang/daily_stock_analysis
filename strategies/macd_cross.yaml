@@ -1,0 +1,57 @@
+# MACD Golden Cross Strategy / MACD 金叉
+# DIF crosses above DEA (golden cross) — momentum confirmation signal.
+
+name: macd_cross
+display_name: MACD金叉
+description: DIF 上穿 DEA 形成金叉，确认趋势动能反转。MACD 零轴上方金叉信号更强。
+category: trend
+core_rules: [2, 3, 6]
+required_tools:
+  - get_daily_history
+  - analyze_trend
+aliases: [MACD金叉, macd金叉, DIF金叉]
+default_priority: 25
+market_regimes: [trending_up, sideways]
+
+instructions: |
+  **MACD 金叉（MACD Golden Cross Strategy）**
+
+  计算方式（基于 get_daily_history 收盘价序列）：
+  - EMA12 = 12日指数移动平均
+  - EMA26 = 26日指数移动平均
+  - DIF = EMA12 - EMA26
+  - DEA（信号线）= DIF 的 9日 EMA
+  - MACD 柱 = (DIF - DEA) × 2
+
+  信号判定标准：
+
+  1. **金叉识别**（关联理念2：趋势交易）：
+     - 使用 `get_daily_history`（60日）计算 MACD 指标。
+     - 主信号：DIF 在最近 1-2 个交易日内上穿 DEA。
+     - 检查 `analyze_trend` → macd_status 是否显示金叉。
+     - MACD 柱由负转正为金叉确认。
+
+  2. **零轴位置判断**（信号强度分级）：
+     - 零轴上方金叉：最强信号，趋势延续。
+     - 零轴附近金叉：中等信号，需量能配合。
+     - 零轴下方金叉：弱信号，仅作参考，不建议重仓。
+
+  3. **量能配合**（关联理念6：量价配合）：
+     - 金叉日成交量应高于近5日均量。
+     - `get_realtime_quote` → volume_ratio > 1.3 为佳。
+
+  4. **背离与共振**（更强信号）：
+     - MACD 底背离（价格低点下移，MACD 低点上移）后金叉。
+     - 周线 MACD 也处于金叉或上行状态，共振信号更强。
+
+  5. **均线配合**（关联理念2）：
+     - `analyze_trend` 确认 MA5 > MA10（均线多头排列更佳）。
+     - 价格在 MA20 上方为优先条件。
+
+  评分调整：
+  - MACD 零轴上方金叉：sentiment_score +12
+  - MACD 零轴附近金叉 + 量能放大：sentiment_score +8
+  - MACD 底背离后金叉：额外 +6
+  - MACD 零轴下方金叉：sentiment_score +3（谨慎）
+  - 在 `ma_analysis` 和 `buy_reason` 中注明"MACD金叉"。
+  - 止损设在金叉日低点下方。

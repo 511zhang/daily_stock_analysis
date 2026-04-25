@@ -998,6 +998,9 @@ class DataFetcherManager:
 
         for attempt, fetcher in enumerate(fetchers, start=1):
             try:
+                if hasattr(fetcher, 'is_available') and not fetcher.is_available():
+                    logger.debug(f"[数据源跳过] [{fetcher.name}] 不可用（未配置或初始化失败），跳过")
+                    continue
                 logger.info(f"[数据源尝试 {attempt}/{total_fetchers}] [{fetcher.name}] 获取 {stock_code}...")
                 df = self._call_fetcher_method(
                     fetcher,

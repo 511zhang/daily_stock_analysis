@@ -1,0 +1,107 @@
+# Composite Scoring Strategy / 多条件组合评分
+# Multi-factor scoring model combining trend, momentum, volume, and risk filters.
+
+name: composite_score
+display_name: 多条件组合评分
+description: 综合趋势、动能、量价、位置多个维度打分，筛选综合质量最高的选股候选。适合作为最终决策层使用。
+category: framework
+core_rules: [1, 2, 3, 4, 5, 6, 7]
+required_tools:
+  - get_daily_history
+  - analyze_trend
+  - get_realtime_quote
+  - search_stock_news
+  - get_sector_rankings
+aliases: [综合评分, 多因子, 组合评分, 综合选股]
+default_active: true
+default_router: true
+default_priority: 10
+market_regimes: [trending_up, sideways, trending_down]
+
+instructions: |
+  **多条件组合评分（Composite Scoring Strategy）**
+
+  本策略是所有选股维度的**综合评分框架**，最终输出一个 0-100 的综合得分。
+  得分 ≥ 70：强烈推荐候选。
+  得分 60-70：值得关注候选。
+  得分 < 60：暂不推荐，但可持续跟踪。
+
+  ---
+
+  **维度一：趋势结构（最高 30 分）**
+
+  使用 `analyze_trend` 和 `get_daily_history` 评估：
+
+  - MA5 > MA10 > MA20（均线多头排列）：+10 分
+  - MA20 斜率向上（趋势向上）：+5 分
+  - MACD 零轴上方金叉：+8 分
+  - MACD 零轴下方金叉：+3 分
+  - 价格在 MA20 上方：+5 分
+  - 价格在 MA20 下方：-5 分
+  - 均线死叉或空头排列：-10 分
+
+  ---
+
+  **维度二：动能指标（最高 25 分）**
+
+  - RSI(14) 在 50-70 区间（健康强势）：+8 分
+  - RSI(14) > 70（超买，谨慎）：+3 分
+  - RSI(14) < 30 且回升（超卖反弹）：+6 分
+  - 近10日涨幅 > 10%（短线强势）：+6 分
+  - 近20日涨幅领先大盘（相对强度）：+5 分
+  - KDJ 低位金叉（J < 20）：+5 分
+  - ATR 波动率放大（ATR比率 > 1.5）：+3 分
+
+  ---
+
+  **维度三：量价配合（最高 25 分）**
+
+  使用 `get_daily_history` 和 `get_realtime_quote` 评估：
+
+  - 当日 volume_ratio > 2.0 且上涨：+10 分
+  - 当日 volume_ratio > 1.5 且上涨：+7 分
+  - 回调时量能萎缩（volume_ratio < 0.8）：+5 分
+  - 突破阻力位时放量：+8 分
+  - 高位放量滞涨（量大涨小）：-10 分
+  - 放量下跌：-8 分
+  - 布林带收口后突破：+5 分
+
+  ---
+
+  **维度四：位置与风险（最高 20 分）**
+
+  - MA5 乖离率 < 5%（不追高）：+8 分
+  - MA5 乖离率 5-10%：+4 分
+  - MA5 乖离率 > 10%：-5 分（追高风险）
+  - 价格在支撑位附近（`analyze_trend` → support_levels）：+5 分
+  - 创近期新高（60日新高）：+5 分
+  - 平台横盘突破：+7 分
+  - 无重大利空新闻（`search_stock_news`）：+5 分
+  - 存在重大利空：-15 分（一票否决风险项）
+
+  ---
+
+  **维度五：板块共振加成（最高 10 分加分项）**
+
+  使用 `get_sector_rankings` 评估所在板块：
+
+  - 所在板块今日涨幅排名前 20%：+5 分
+  - 板块内资金净流入：+3 分
+  - 板块处于政策支持或景气上行周期：+2 分
+
+  ---
+
+  **最终评分计算**：
+  - 将以上各维度得分累加（上限 100 分，最低 0 分）
+  - 额外风险项可使总分低于 0（强烈不推荐）
+
+  **输出要求**：
+  - 在分析报告中列出各维度得分明细。
+  - 综合得分写入 `sentiment_score`（映射关系：综合得分 70+ → sentiment +15；60-70 → sentiment +8；< 60 → sentiment 0 或负值）。
+  - 在 `buy_reason` 中注明"综合评分"及总分。
+  - 在 `risk_warnings` 中列出扣分项目。
+
+  **与其他策略协同**：
+  - 本策略可作为其他任意策略的**综合验证层**。
+  - 当其他策略（如均线金叉、放量突破）触发信号时，叠加本评分框架做最终决策。
+  - 推荐：先用单一策略快速初筛，再用综合评分精选。
