@@ -51,6 +51,8 @@ export interface ScreenerResultItem {
   pbRatio?: number;
   totalMv?: number;
   circMv?: number;
+  change3d?: number;
+  change5d?: number;
   change60d?: number;
   high52w?: number;
   low52w?: number;

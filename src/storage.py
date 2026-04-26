@@ -652,6 +652,8 @@ class RealtimeQuoteCache(Base):
     pb_ratio = Column(Float)
     total_mv = Column(Float)
     circ_mv = Column(Float)
+    change_3d = Column(Float)
+    change_5d = Column(Float)
     change_60d = Column(Float)
     high_52w = Column(Float)
     low_52w = Column(Float)
@@ -678,6 +680,8 @@ class RealtimeQuoteCache(Base):
             'pb_ratio': self.pb_ratio,
             'total_mv': self.total_mv,
             'circ_mv': self.circ_mv,
+            'change_3d': self.change_3d,
+            'change_5d': self.change_5d,
             'change_60d': self.change_60d,
             'high_52w': self.high_52w,
             'low_52w': self.low_52w,
@@ -2269,6 +2273,8 @@ class DatabaseManager:
                     pb_ratio=rec.get('pb_ratio'),
                     total_mv=rec.get('total_mv'),
                     circ_mv=rec.get('circ_mv'),
+                    change_3d=rec.get('change_3d'),
+                    change_5d=rec.get('change_5d'),
                     change_60d=rec.get('change_60d'),
                     high_52w=rec.get('high_52w'),
                     low_52w=rec.get('low_52w'),
@@ -2295,6 +2301,8 @@ class DatabaseManager:
                         'pb_ratio': stmt.excluded.pb_ratio,
                         'total_mv': stmt.excluded.total_mv,
                         'circ_mv': stmt.excluded.circ_mv,
+                        'change_3d': stmt.excluded.change_3d,
+                        'change_5d': stmt.excluded.change_5d,
                         'change_60d': stmt.excluded.change_60d,
                         'high_52w': stmt.excluded.high_52w,
                         'low_52w': stmt.excluded.low_52w,

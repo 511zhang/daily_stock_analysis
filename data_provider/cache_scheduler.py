@@ -300,27 +300,39 @@ def _enrich_from_daily(records: List[dict]) -> List[dict]:
         """)).fetchall()
         vol_map = {r.code: r.avg_vol for r in vol_rows if r.avg_vol and r.avg_vol > 0}
 
-        # 获取60日前的收盘价（用于60日涨跌幅）
-        close_60d_rows = s.execute(text("""
-            SELECT code, close
-            FROM (
+        # 获取 N 日前收盘价（用于计算 3日/5日/60日涨跌幅）
+        hist_rows = s.execute(text("""
+            SELECT code, close, rn FROM (
                 SELECT code, close, ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) as rn
                 FROM stock_daily
             ) sub
-            WHERE rn = 60
+            WHERE rn IN (3, 5, 60)
         """)).fetchall()
-        close_60d_map = {r.code: r.close for r in close_60d_rows if r.close and r.close > 0}
+        close_map = {}  # {code: {3: close, 5: close, 60: close}}
+        for r in hist_rows:
+            if r.close and r.close > 0:
+                close_map.setdefault(r.code, {})[r.rn] = r.close
 
     enriched = 0
     for rec in records:
         code = rec['code']
+        price = rec.get('price')
+        hist = close_map.get(code, {})
+
         # 量比
         if not rec.get('volume_ratio') and rec.get('volume') and code in vol_map:
             rec['volume_ratio'] = round(rec['volume'] / vol_map[code], 4)
             enriched += 1
+
+        # 3日涨跌幅
+        if price and 3 in hist:
+            rec['change_3d'] = round((price - hist[3]) / hist[3] * 100, 2)
+        # 5日涨跌幅
+        if price and 5 in hist:
+            rec['change_5d'] = round((price - hist[5]) / hist[5] * 100, 2)
         # 60日涨跌幅
-        if not rec.get('change_60d') and rec.get('price') and code in close_60d_map:
-            rec['change_60d'] = round((rec['price'] - close_60d_map[code]) / close_60d_map[code] * 100, 2)
+        if not rec.get('change_60d') and price and 60 in hist:
+            rec['change_60d'] = round((price - hist[60]) / hist[60] * 100, 2)
 
     logger.info("[CacheRefresh] 从 stock_daily 补充字段：%d 条量比，耗时 %.1fs", enriched, time.time() - t0)
     return records

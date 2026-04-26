@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 class PresetStrategy(str, Enum):
-    """预设筛选��略"""
+    """预设筛选策略"""
+    SHORT_LINE = "short_line"                # 短线强势（主推策略）
     VOLUME_SURGE = "volume_surge"            # 量比异动
     HIGH_TURNOVER = "high_turnover"          # 高换手
     PRICE_BREAKOUT = "price_breakout"        # 放量突破（接近52周新高）
@@ -31,7 +32,7 @@ class PresetStrategy(str, Enum):
     LOW_PE_VALUE = "low_pe_value"            # 低PE价值
     LIMIT_UP_BOARD = "limit_up_board"        # 涨停板
     LARGE_CAP_ACTIVE = "large_cap_active"    # 大盘股活跃
-    ZHABAN = "zhaban"                        # 炸板票（曾触及涨停但未封住）
+    ZHABAN = "zhaban"                        # 炸板票（曾触及涨停但未封���）
 
 
 @dataclass
@@ -61,6 +62,13 @@ class ScreenerFilter:
 
 # 预设策略的筛选条件
 PRESET_FILTERS: Dict[PresetStrategy, ScreenerFilter] = {
+    PresetStrategy.SHORT_LINE: ScreenerFilter(
+        change_pct_min=3.0,
+        change_pct_max=8.0,             # 强势但没涨停封死
+        volume_ratio_min=2.0,           # 明显放量
+        turnover_rate_min=3.0,          # 流动性好
+        circ_mv_min=3_000_000_000,      # 流通市值 > 30亿
+    ),
     PresetStrategy.VOLUME_SURGE: ScreenerFilter(
         volume_ratio_min=3.0,
         change_pct_min=1.0,
@@ -107,6 +115,10 @@ PRESET_FILTERS: Dict[PresetStrategy, ScreenerFilter] = {
 
 # 预设策略描述
 PRESET_DESCRIPTIONS: Dict[PresetStrategy, Dict[str, str]] = {
+    PresetStrategy.SHORT_LINE: {
+        "name": "短线强势",
+        "description": "涨幅3-8%、量比≥2、换手≥3%、市值>30亿，放量强势股",
+    },
     PresetStrategy.VOLUME_SURGE: {
         "name": "量比异动",
         "description": "量比≥3 且上涨，流通市值>20亿，捕捉资金异动信号",
@@ -312,8 +324,14 @@ def _zhaban_score(quote: Dict[str, Any]) -> float:
 
 
 def _sort_key_for_preset(preset: PresetStrategy, quote: Dict[str, Any]) -> float:
-    """预设策略的排序键（越大越���前）"""
-    if preset == PresetStrategy.VOLUME_SURGE:
+    """预设策略的排序键（越大越靠前）"""
+    if preset == PresetStrategy.SHORT_LINE:
+        # 综合评分：量比权重40% + 涨幅权重30% + 换手率权重30%
+        vr = _safe_float(quote.get('volume_ratio')) or 0
+        chg = _safe_float(quote.get('change_pct')) or 0
+        tr = _safe_float(quote.get('turnover_rate')) or 0
+        return vr * 4 + chg * 3 + tr * 3
+    elif preset == PresetStrategy.VOLUME_SURGE:
         return _safe_float(quote.get('volume_ratio')) or 0
     elif preset == PresetStrategy.HIGH_TURNOVER:
         return _safe_float(quote.get('turnover_rate')) or 0

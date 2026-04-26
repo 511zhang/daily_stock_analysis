@@ -1,10 +1,10 @@
 import type React from 'react';
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Search, TrendingUp, TrendingDown, Minus, Filter } from 'lucide-react';
+import { RefreshCw, Zap, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { screenerApi } from '../api/screener';
-import type { PresetItem, ScreenerResultItem, ScreenerResponse } from '../api/screener';
+import type { ScreenerResultItem, ScreenerResponse } from '../api/screener';
 import { getParsedApiError } from '../api/error';
-import { ApiErrorAlert, Badge, Card, EmptyState } from '../components/common';
+import { ApiErrorAlert, Badge, Card } from '../components/common';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ function fmtNum(v?: number | null, decimals = 2): string {
 function fmtMv(v?: number | null): string {
   if (v == null) return '--';
   if (v >= 1e12) return `${(v / 1e12).toFixed(1)}万亿`;
-  if (v >= 1e8) return `${(v / 1e8).toFixed(1)}亿`;
+  if (v >= 1e8) return `${(v / 1e8).toFixed(0)}亿`;
   if (v >= 1e4) return `${(v / 1e4).toFixed(0)}万`;
   return v.toFixed(0);
 }
@@ -40,52 +40,29 @@ function PctCell({ value }: { value?: number | null }) {
   );
 }
 
-// ── PresetCard ─────────────────────────────────────────────────────────────
-
-function PresetCard({
-  preset,
-  active,
-  onClick,
-}: {
-  preset: PresetItem;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={[
-        'w-full rounded-xl border px-3 py-2.5 text-left transition-all',
-        active
-          ? 'border-[hsl(var(--primary))] bg-[hsl(var(--primary)/0.1)] text-foreground'
-          : 'border-border/50 bg-surface hover:border-border hover:bg-hover',
-      ].join(' ')}
-    >
-      <p className="text-sm font-medium">{preset.name}</p>
-      <p className="mt-0.5 text-xs text-secondary-text line-clamp-2">{preset.description}</p>
-    </button>
-  );
-}
-
-// ── ResultTable ────────────────────────────────────────────────────────────
+// ── Table ─────────────────────────────────────────────────────────────────
 
 const COLS = [
   { key: 'code', label: '代码', width: 'w-20' },
   { key: 'name', label: '名称', width: 'w-24' },
   { key: 'price', label: '最新价', width: 'w-20' },
-  { key: 'changePct', label: '涨跌幅', width: 'w-24' },
+  { key: 'changePct', label: '今日涨跌', width: 'w-24' },
+  { key: 'change3d', label: '3日%', width: 'w-20' },
+  { key: 'change5d', label: '5日%', width: 'w-20' },
   { key: 'volumeRatio', label: '量比', width: 'w-16' },
   { key: 'turnoverRate', label: '换手%', width: 'w-16' },
-  { key: 'amplitude', label: '振幅%', width: 'w-16' },
   { key: 'circMv', label: '流通市值', width: 'w-24' },
-  { key: 'peRatio', label: 'PE', width: 'w-16' },
-  { key: 'change60d', label: '60日%', width: 'w-20' },
+  { key: 'amplitude', label: '振幅%', width: 'w-16' },
 ];
 
 function ResultTable({ rows }: { rows: ScreenerResultItem[] }) {
   if (rows.length === 0) {
-    return <EmptyState title="暂无结果" description="当前条件未筛选到符合股票" />;
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-secondary-text">
+        <p className="text-sm">当前条件未筛选到股票</p>
+        <p className="mt-1 text-xs">交易时段数据每3分钟自动更新</p>
+      </div>
+    );
   }
   return (
     <div className="overflow-x-auto">
@@ -111,17 +88,13 @@ function ResultTable({ rows }: { rows: ScreenerResultItem[] }) {
               <td className="py-2 pl-1 pr-3 font-mono text-xs text-secondary-text">{row.code}</td>
               <td className="py-2 pr-3 font-medium">{row.name ?? '--'}</td>
               <td className="py-2 pr-3">{fmtNum(row.price)}</td>
-              <td className="py-2 pr-3">
-                <PctCell value={row.changePct} />
-              </td>
+              <td className="py-2 pr-3"><PctCell value={row.changePct} /></td>
+              <td className="py-2 pr-3"><PctCell value={row.change3d} /></td>
+              <td className="py-2 pr-3"><PctCell value={row.change5d} /></td>
               <td className="py-2 pr-3">{fmtNum(row.volumeRatio)}</td>
               <td className="py-2 pr-3">{fmtNum(row.turnoverRate)}</td>
-              <td className="py-2 pr-3">{fmtNum(row.amplitude)}</td>
               <td className="py-2 pr-3">{fmtMv(row.circMv)}</td>
-              <td className="py-2 pr-3">{fmtNum(row.peRatio, 1)}</td>
-              <td className="py-2 pr-3">
-                <PctCell value={row.change60d} />
-              </td>
+              <td className="py-2 pr-3">{fmtNum(row.amplitude)}</td>
             </tr>
           ))}
         </tbody>
@@ -133,23 +106,16 @@ function ResultTable({ rows }: { rows: ScreenerResultItem[] }) {
 // ── Main Page ──────────────────────────────────────────────────────────────
 
 const ScreenerPage: React.FC = () => {
-  const [presets, setPresets] = useState<PresetItem[]>([]);
-  const [activePreset, setActivePreset] = useState<string>('volume_surge');
   const [result, setResult] = useState<ScreenerResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<ReturnType<typeof getParsedApiError> | null>(null);
   const [lastScanned, setLastScanned] = useState<string>('');
 
-  // 加载预设列表
-  useEffect(() => {
-    screenerApi.getPresets().then((res) => setPresets(res.presets)).catch(() => {});
-  }, []);
-
-  const runScan = useCallback(async (preset: string) => {
+  const runScan = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await screenerApi.scanByPreset(preset, 100);
+      const res = await screenerApi.scanByPreset('short_line', 100);
       setResult(res);
       setLastScanned(new Date().toLocaleTimeString('zh-CN'));
     } catch (e) {
@@ -159,31 +125,23 @@ const ScreenerPage: React.FC = () => {
     }
   }, []);
 
-  // 初始加载
   useEffect(() => {
-    void runScan(activePreset);
-  }, [activePreset, runScan]);
-
-  const handlePresetClick = (key: string) => {
-    setActivePreset(key);
-  };
-
-  const handleRefresh = () => {
-    void runScan(activePreset);
-  };
-
-  const currentPreset = presets.find((p) => p.key === activePreset);
+    void runScan();
+  }, [runScan]);
 
   return (
     <div className="flex h-full flex-col gap-4 p-4 md:p-6">
       {/* 头部 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Filter className="h-5 w-5 text-[hsl(var(--primary))]" />
-          <h1 className="text-lg font-semibold">策略筛选</h1>
+          <Zap className="h-5 w-5 text-amber-500" />
+          <h1 className="text-lg font-semibold">短线强势</h1>
+          <span className="text-xs text-secondary-text">
+            涨幅3-8% · 量比≥2 · 换手≥3% · 市值&gt;30亿
+          </span>
           {result && !result.cacheEmpty && (
-            <Badge variant="default" className="text-xs">
-              扫描 {result.totalScanned.toLocaleString()} 只
+            <Badge variant={result.totalMatched > 0 ? 'success' : 'default'} className="text-xs">
+              {result.totalMatched} 只
             </Badge>
           )}
         </div>
@@ -191,7 +149,7 @@ const ScreenerPage: React.FC = () => {
           {lastScanned && <span>更新于 {lastScanned}</span>}
           <button
             type="button"
-            onClick={handleRefresh}
+            onClick={() => void runScan()}
             disabled={loading}
             className="flex items-center gap-1 rounded-lg border border-border/50 px-2.5 py-1.5 text-xs hover:bg-hover disabled:opacity-50"
           >
@@ -203,65 +161,33 @@ const ScreenerPage: React.FC = () => {
 
       {error ? <ApiErrorAlert error={error} /> : null}
 
-      <div className="flex flex-1 gap-4 overflow-hidden">
-        {/* 左侧预设列表 */}
-        <div className="flex w-44 shrink-0 flex-col gap-2 overflow-y-auto pr-1">
-          <p className="text-xs font-medium text-secondary-text">预设策略</p>
-          {presets.map((p) => (
-            <PresetCard
-              key={p.key}
-              preset={p}
-              active={activePreset === p.key}
-              onClick={() => handlePresetClick(p.key)}
-            />
-          ))}
-        </div>
-
-        {/* 右侧结果区 */}
-        <Card className="flex flex-1 flex-col overflow-hidden p-0">
-          {/* 策略说明条 */}
-          {currentPreset && (
-            <div className="flex items-center gap-2 border-b border-border/40 px-4 py-2.5">
-              <Search className="h-4 w-4 shrink-0 text-[hsl(var(--primary))]" />
-              <div className="min-w-0">
-                <span className="font-medium text-sm">{currentPreset.name}</span>
-                <span className="ml-2 text-xs text-secondary-text">{currentPreset.description}</span>
-              </div>
-              {result && (
-                <Badge variant={result.totalMatched > 0 ? 'success' : 'default'} className="ml-auto shrink-0 text-xs">
-                  {result.totalMatched} 只
-                </Badge>
-              )}
+      <Card className="flex flex-1 flex-col overflow-hidden p-0">
+        {/* 缓存为空 */}
+        {result?.cacheEmpty && (
+          <div className="flex flex-1 items-center justify-center p-8 text-center">
+            <div>
+              <p className="font-medium">行情缓存为空</p>
+              <p className="mt-1 text-sm text-secondary-text">
+                缓存每3分钟自动刷新，交易时段开始后数据将自动填充。
+              </p>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* 缓存为空提示 */}
-          {result?.cacheEmpty && (
-            <div className="flex flex-1 items-center justify-center p-8 text-center">
-              <div>
-                <p className="font-medium">行情缓存为空</p>
-                <p className="mt-1 text-sm text-secondary-text">
-                  实时行情缓存尚未建立，请先在交易时段运行系统，缓存调度器将自动每15分钟刷新行情数据。
-                </p>
-              </div>
-            </div>
-          )}
+        {/* 加载中 */}
+        {loading && !result && (
+          <div className="flex flex-1 items-center justify-center">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-amber-500/20 border-t-amber-500" />
+          </div>
+        )}
 
-          {/* 加载中 */}
-          {loading && (
-            <div className="flex flex-1 items-center justify-center">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-cyan/20 border-t-cyan" />
-            </div>
-          )}
-
-          {/* 结果表格 */}
-          {!loading && !result?.cacheEmpty && result && (
-            <div className="flex-1 overflow-auto px-4 pb-4 pt-2">
-              <ResultTable rows={result.results} />
-            </div>
-          )}
-        </Card>
-      </div>
+        {/* 结果 */}
+        {!result?.cacheEmpty && result && (
+          <div className="flex-1 overflow-auto px-4 pb-4 pt-2">
+            <ResultTable rows={result.results} />
+          </div>
+        )}
+      </Card>
     </div>
   );
 };
