@@ -193,36 +193,32 @@ def _match_filter(quote: Dict[str, Any], f: ScreenerFilter) -> bool:
         if volume_ratio is None or volume_ratio > f.volume_ratio_max:
             return False
 
-    # 换手率
-    if f.turnover_rate_min is not None:
-        if turnover_rate is None or turnover_rate < f.turnover_rate_min:
+    # 换手率（数据缺失时跳过）
+    if turnover_rate is not None:
+        if f.turnover_rate_min is not None and turnover_rate < f.turnover_rate_min:
             return False
-    if f.turnover_rate_max is not None:
-        if turnover_rate is None or turnover_rate > f.turnover_rate_max:
-            return False
-
-    # PE
-    if f.pe_ratio_min is not None:
-        if pe_ratio is None or pe_ratio < f.pe_ratio_min:
-            return False
-    if f.pe_ratio_max is not None:
-        if pe_ratio is None or pe_ratio > f.pe_ratio_max:
+        if f.turnover_rate_max is not None and turnover_rate > f.turnover_rate_max:
             return False
 
-    # PB
-    if f.pb_ratio_min is not None:
-        if pb_ratio is None or pb_ratio < f.pb_ratio_min:
+    # PE（数据缺失时跳过）
+    if pe_ratio is not None:
+        if f.pe_ratio_min is not None and pe_ratio < f.pe_ratio_min:
             return False
-    if f.pb_ratio_max is not None:
-        if pb_ratio is None or pb_ratio > f.pb_ratio_max:
+        if f.pe_ratio_max is not None and pe_ratio > f.pe_ratio_max:
             return False
 
-    # 流通市值
-    if f.circ_mv_min is not None:
-        if circ_mv is None or circ_mv < f.circ_mv_min:
+    # PB（数据缺失时跳过）
+    if pb_ratio is not None:
+        if f.pb_ratio_min is not None and pb_ratio < f.pb_ratio_min:
             return False
-    if f.circ_mv_max is not None:
-        if circ_mv is None or circ_mv > f.circ_mv_max:
+        if f.pb_ratio_max is not None and pb_ratio > f.pb_ratio_max:
+            return False
+
+    # 流通市值（数据缺失时跳过此条件，避免因缓存无市值数据导致全部过滤）
+    if circ_mv is not None:
+        if f.circ_mv_min is not None and circ_mv < f.circ_mv_min:
+            return False
+        if f.circ_mv_max is not None and circ_mv > f.circ_mv_max:
             return False
 
     # 振幅

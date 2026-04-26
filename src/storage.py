@@ -2244,7 +2244,7 @@ class DatabaseManager:
 
         now = datetime.now()
         saved = 0
-        with self.get_session() as session:
+        with self.session_scope() as session:
             for rec in records:
                 code = rec.get('code')
                 if not code:
