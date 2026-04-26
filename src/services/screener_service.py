@@ -31,6 +31,7 @@ class PresetStrategy(str, Enum):
     LOW_PE_VALUE = "low_pe_value"            # 低PE价值
     LIMIT_UP_BOARD = "limit_up_board"        # 涨停板
     LARGE_CAP_ACTIVE = "large_cap_active"    # 大盘股活跃
+    ZHABAN = "zhaban"                        # 炸板票（曾触及涨停但未封住）
 
 
 @dataclass
@@ -137,6 +138,10 @@ PRESET_DESCRIPTIONS: Dict[PresetStrategy, Dict[str, str]] = {
     PresetStrategy.LARGE_CAP_ACTIVE: {
         "name": "大盘活跃",
         "description": "流通市值>500亿、量比≥1.5、换手≥1%，大盘股异动",
+    },
+    PresetStrategy.ZHABAN: {
+        "name": "炸板票",
+        "description": "盘中触及涨停但未封住，涨幅≥5%，捕捉强势回落机会",
     },
 }
 
@@ -263,6 +268,53 @@ def _match_filter(quote: Dict[str, Any], f: ScreenerFilter) -> bool:
     return True
 
 
+def _is_zhaban(quote: Dict[str, Any]) -> bool:
+    """判断炸板：盘中触及涨停价但收盘未封住"""
+    price = _safe_float(quote.get('price'))
+    high = _safe_float(quote.get('high'))
+    pre_close = _safe_float(quote.get('pre_close'))
+    name = quote.get('name', '')
+
+    if not price or not high or not pre_close or pre_close <= 0:
+        return False
+
+    # ST股涨停幅度 5%，普通股 10%
+    is_st = 'ST' in name
+    limit_ratio = 1.05 if is_st else 1.10
+    limit_price = round(pre_close * limit_ratio, 2)
+
+    touched_limit = high >= limit_price - 0.02
+    not_locked = price < limit_price - 0.02
+
+    return touched_limit and not_locked
+
+
+def _zhaban_score(quote: Dict[str, Any]) -> float:
+    """炸板票评分（越高越值得关注）"""
+    score = 50.0
+    change_pct = _safe_float(quote.get('change_pct')) or 0
+    turnover = _safe_float(quote.get('turnover_rate')) or 0
+    circ_mv = _safe_float(quote.get('circ_mv')) or 0
+    circ_mv_yi = circ_mv / 1e8
+
+    if change_pct >= 7:
+        score += 15
+    elif change_pct >= 5:
+        score += 5
+    else:
+        score -= 10
+
+    if 5 <= turnover <= 10:
+        score += 5
+    elif turnover > 15:
+        score -= 10
+
+    if 30 <= circ_mv_yi <= 150:
+        score += 5
+
+    return score
+
+
 def _sort_key_for_preset(preset: PresetStrategy, quote: Dict[str, Any]) -> float:
     """预设策略的排序键（越大越���前）"""
     if preset == PresetStrategy.VOLUME_SURGE:
@@ -286,6 +338,8 @@ def _sort_key_for_preset(preset: PresetStrategy, quote: Dict[str, Any]) -> float
         return _safe_float(quote.get('change_pct')) or 0
     elif preset == PresetStrategy.LARGE_CAP_ACTIVE:
         return _safe_float(quote.get('volume_ratio')) or 0
+    elif preset == PresetStrategy.ZHABAN:
+        return _zhaban_score(quote)
     return 0
 
 
@@ -334,17 +388,25 @@ def run_screening(
         active_filter = ScreenerFilter()
 
     # 过滤
+    is_zhaban_mode = (preset == PresetStrategy.ZHABAN and custom_filter is None)
     matched = []
     for code, quote in all_quotes.items():
-        # 跳过 ST 和退市股（名称包含 ST/*ST/退）
+        # 跳过退市股
         name = quote.get('name', '')
-        if 'ST' in name or '退' in name:
+        if '退' in name:
             continue
-        if _match_filter(quote, active_filter):
+        # 炸板模式允许 ST 股（ST 有5%涨停），其他模式跳过 ST
+        if not is_zhaban_mode and 'ST' in name:
+            continue
+
+        if is_zhaban_mode:
+            if _is_zhaban(quote):
+                matched.append(quote)
+        elif _match_filter(quote, active_filter):
             matched.append(quote)
 
     # 排序
-    if sort_by and sort_by in matched[0] if matched else False:
+    if sort_by and matched and sort_by in matched[0]:
         matched.sort(
             key=lambda q: _safe_float(q.get(sort_by)) or (float('-inf') if sort_desc else float('inf')),
             reverse=sort_desc,
@@ -387,3 +449,52 @@ def list_presets() -> List[Dict[str, str]]:
             "description": desc.get("description", ""),
         })
     return result
+
+
+def format_screening_markdown(
+    result: Dict[str, Any],
+    max_rows: int = 20,
+) -> str:
+    """将筛选结果格式化为 Markdown，用于通知推送"""
+    strategy = result.get("strategy")
+    items = result.get("results", [])
+    total = result.get("total_matched", 0)
+    scanned = result.get("total_scanned", 0)
+    scanned_at = result.get("scanned_at", "")
+
+    title = strategy["name"] if strategy else "自定义筛选"
+    desc = strategy.get("description", "") if strategy else ""
+
+    lines = [
+        f"## 策略筛选: {title}",
+        f"> {desc}" if desc else "",
+        f"> 扫描 {scanned} 只 | 命中 {total} 只 | {scanned_at}",
+        "",
+        "| 代码 | 名称 | 最新价 | 涨跌幅 | 量比 | 换手% | 流通市值 |",
+        "|------|------|--------|--------|------|-------|----------|",
+    ]
+
+    for item in items[:max_rows]:
+        code = item.get("code", "")
+        name = item.get("name", "")
+        price = item.get("price")
+        chg = item.get("change_pct")
+        vr = item.get("volume_ratio")
+        tr = item.get("turnover_rate")
+        mv = item.get("circ_mv")
+
+        price_s = f"{price:.2f}" if price else "--"
+        chg_s = f"{chg:+.2f}%" if chg is not None else "--"
+        vr_s = f"{vr:.2f}" if vr is not None else "--"
+        tr_s = f"{tr:.2f}" if tr is not None else "--"
+        if mv and mv >= 1e8:
+            mv_s = f"{mv / 1e8:.1f}亿"
+        else:
+            mv_s = "--"
+
+        lines.append(f"| {code} | {name} | {price_s} | {chg_s} | {vr_s} | {tr_s} | {mv_s} |")
+
+    if total > max_rows:
+        lines.append(f"\n*...及其余 {total - max_rows} 只*")
+
+    return "\n".join(lines)

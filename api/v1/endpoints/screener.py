@@ -8,6 +8,7 @@
 1. 提供策略筛选接口
 2. 列出可用预设策略
 3. 支持自定义条件组合筛选
+4. 支持将筛选结果推送到通知渠道
 """
 
 import logging
@@ -24,6 +25,7 @@ from api.v1.schemas.screener import (
 from src.services.screener_service import (
     PresetStrategy,
     ScreenerFilter,
+    format_screening_markdown,
     list_presets,
     run_screening,
 )
@@ -31,6 +33,18 @@ from src.services.screener_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _send_notification(result: dict) -> bool:
+    """尝试将筛选结果通过通知服务发送"""
+    try:
+        from src.notification import NotificationService
+        md = format_screening_markdown(result)
+        svc = NotificationService()
+        return svc.send(md)
+    except Exception as e:
+        logger.warning("[Screener] 通知发送失败: %s", e)
+        return False
 
 
 @router.get("/presets", response_model=PresetListResponse)
@@ -47,6 +61,7 @@ async def scan_stocks(req: ScreenerRequest):
     - 指定 preset 使用预设策略
     - 指定 filter 使用自定义条件
     - 两者都不指定则返回全部（按涨幅排序）
+    - notify=true 时将结果推送到已配置的通知渠道
     """
     preset_enum = None
     if req.preset:
@@ -90,6 +105,10 @@ async def scan_stocks(req: ScreenerRequest):
         sort_desc=req.sort_desc,
         limit=req.limit,
     )
+
+    if req.notify and result.get("total_matched", 0) > 0:
+        _send_notification(result)
+
     return ScreenerResponse(**result)
 
 
@@ -98,6 +117,7 @@ async def scan_by_preset(
     preset_key: str,
     limit: int = Query(50, ge=1, le=200),
     sort_by: Optional[str] = Query(None),
+    notify: bool = Query(False, description="是否推送通知"),
 ):
     """快捷接口：按预设策略名筛选"""
     try:
@@ -113,4 +133,8 @@ async def scan_by_preset(
         sort_by=sort_by,
         limit=limit,
     )
+
+    if notify and result.get("total_matched", 0) > 0:
+        _send_notification(result)
+
     return ScreenerResponse(**result)

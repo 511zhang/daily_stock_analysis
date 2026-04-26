@@ -41,6 +41,7 @@ class ScreenerRequest(BaseModel):
     sort_by: Optional[str] = Field(None, description="排序字段")
     sort_desc: bool = Field(True, description="是否降序")
     limit: int = Field(50, ge=1, le=200, description="返回条数上限")
+    notify: bool = Field(False, description="是否将结果推送到通知渠道")
 
 
 class StrategyInfo(BaseModel):

@@ -61,8 +61,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("init_history")
 
-# 进度检查点文件
-CHECKPOINT_FILE = _CWD / "data" / ".init_history_checkpoint.json"
+# 进度检查点文件（使用项目根目录，确保从任意 cwd 启动都一致）
+CHECKPOINT_FILE = _PROJECT_ROOT / "data" / ".init_history_checkpoint.json"
 
 
 # ─────────────────────────────────────────────
