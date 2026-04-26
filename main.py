@@ -907,7 +907,7 @@ def main() -> int:
             from data_provider.cache_scheduler import make_cache_refresh_task
             background_tasks.append({
                 "task": make_cache_refresh_task(),
-                "interval_seconds": 900,  # 15 分钟
+                "interval_seconds": 180,  # 3 分钟
                 "run_immediately": True,
                 "name": "realtime_cache_refresh",
             })
