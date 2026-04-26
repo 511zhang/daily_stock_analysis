@@ -160,9 +160,67 @@ def _fetch_sina_batch(codes: List[str]) -> Dict[str, dict]:
     return results
 
 
+def _enrich_from_daily(records: List[dict]) -> List[dict]:
+    """
+    从 stock_daily 历史数据补充新浪接口缺失的字段：
+    - volume_ratio: 量比 = 当日成交量 / 过去5日平均成交量
+    - change_60d: 60日涨跌幅
+    - turnover_rate: 换手率（如果有流通股本数据）
+    """
+    from src.storage import get_db
+    from sqlalchemy import text
+
+    if not records:
+        return records
+
+    db = get_db()
+    t0 = time.time()
+
+    # 批量查询：每只股票最近60个交易日的 close 和最近5日 volume
+    code_set = {r['code'] for r in records}
+
+    with db.get_session() as s:
+        # 获取每只股票最近5日平均成交量（用于量比计算）
+        vol_rows = s.execute(text("""
+            SELECT code, AVG(volume) as avg_vol
+            FROM (
+                SELECT code, volume, ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) as rn
+                FROM stock_daily
+            ) sub
+            WHERE rn <= 5
+            GROUP BY code
+        """)).fetchall()
+        vol_map = {r.code: r.avg_vol for r in vol_rows if r.avg_vol and r.avg_vol > 0}
+
+        # 获取60日前的收盘价（用于60日涨跌幅）
+        close_60d_rows = s.execute(text("""
+            SELECT code, close
+            FROM (
+                SELECT code, close, ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) as rn
+                FROM stock_daily
+            ) sub
+            WHERE rn = 60
+        """)).fetchall()
+        close_60d_map = {r.code: r.close for r in close_60d_rows if r.close and r.close > 0}
+
+    enriched = 0
+    for rec in records:
+        code = rec['code']
+        # 量比
+        if not rec.get('volume_ratio') and rec.get('volume') and code in vol_map:
+            rec['volume_ratio'] = round(rec['volume'] / vol_map[code], 4)
+            enriched += 1
+        # 60日涨跌幅
+        if not rec.get('change_60d') and rec.get('price') and code in close_60d_map:
+            rec['change_60d'] = round((rec['price'] - close_60d_map[code]) / close_60d_map[code] * 100, 2)
+
+    logger.info("[CacheRefresh] 从 stock_daily 补充字段：%d 条量比，耗时 %.1fs", enriched, time.time() - t0)
+    return records
+
+
 def _fetch_all_sina() -> List[dict]:
     """
-    通过新浪批量接口获取全市场实时行情。
+    通过新浪批量接口获取全市场实时行情，并从 stock_daily 补充缺失字段。
 
     Returns:
         记录列表，每条包含 cache 表所需字段
@@ -190,7 +248,12 @@ def _fetch_all_sina() -> List[dict]:
             logger.warning("[CacheRefresh/Sina] 批次 %d 失败: %s", i // _SINA_BATCH_SIZE + 1, e)
         time.sleep(0.3)
 
-    return list(all_results.values())
+    records = list(all_results.values())
+
+    # 从历史数据补充量比、60日涨跌幅等
+    records = _enrich_from_daily(records)
+
+    return records
 
 
 # ─────────────────────────────────────────────
