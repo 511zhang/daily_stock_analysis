@@ -20,14 +20,15 @@
             "name": "realtime_cache_refresh",
         })
 
-数据源策略：
-- 新浪 hq.sinajs.cn 批量接口：速度极快（800只/请求，全市场<10秒），周末也可用
-  字段：名称、今开、昨收、最新价、最高、最低、成交量、成交额
-  缺少：量比、换手率、PE、PB、市值、60日涨跌幅、52周高低
-- 东方财富 ak.stock_zh_a_spot_em()：字段齐全，但周末/节假日接口不可用
-  包含上述所有字段
+数据源策略（按优先级）：
+1. 东方财富 ak.stock_zh_a_spot_em()：字段最全（含60日涨跌幅、52周高低），
+   但周末/节假日接口不可用
+2. 腾讯 qt.gtimg.cn 批量接口：字段丰富（含换手率、PE、PB、市值、量比、振幅），
+   速度快（~10秒全市场），周末也可用
+3. 新浪 hq.sinajs.cn 批量接口：字段较少（无PE/PB/市值/换手率），
+   速度最快（~8秒），兜底用
 
-策略：每次先尝试东方财富（字段全），失败后自动降级到新浪（速度快、稳定）
+策略：依次尝试，前一个失败自动降级到下一个
 """
 
 import logging
@@ -158,6 +159,113 @@ def _fetch_sina_batch(codes: List[str]) -> Dict[str, dict]:
             'pre_close': pre_close,
         }
     return results
+
+
+# ─────────────────────────────────────────────
+# 腾讯批量接口（字段丰富：含换手率/PE/PB/市值/量比）
+# ─────────────────────────────────────────────
+
+_TENCENT_ENDPOINT = "qt.gtimg.cn"
+_TENCENT_BATCH_SIZE = 500  # 腾讯单次稍少些，数据量更大
+
+
+def _fetch_tencent_batch(codes: List[str]) -> Dict[str, dict]:
+    """
+    通过腾讯 qt.gtimg.cn 批量接口获取实时行情。
+
+    字段顺序（~分隔）：
+    1:名称 2:代码 3:最新价 4:昨收 5:今开 6:成交量(手) ...
+    31:涨跌额 32:涨跌幅% 33:最高 34:最低 ...
+    38:换手率% 39:市盈率 43:振幅%
+    44:流通市值(亿) 45:总市值(亿) 46:市净率 49:量比
+    """
+    symbols = [_code_to_sina_symbol(c) for c in codes]
+    url = f"http://{_TENCENT_ENDPOINT}/q={','.join(symbols)}"
+    headers = {
+        'Referer': 'http://finance.qq.com',
+        'User-Agent': random.choice(_USER_AGENTS),
+    }
+    r = requests.get(url, headers=headers, timeout=30)
+    r.encoding = 'gbk'
+
+    results = {}
+    for segment in r.text.strip().split(';'):
+        segment = segment.strip()
+        if not segment or '=""' in segment or '"' not in segment:
+            continue
+        data_str = segment.split('"')[1]
+        fields = data_str.split('~')
+        if len(fields) < 50:
+            continue
+
+        code = fields[2].strip()
+        if not code or len(code) != 6:
+            continue
+
+        price = _safe_float(fields[3])
+        if not price or price <= 0:
+            continue
+
+        circ_mv_raw = _safe_float(fields[44])
+        total_mv_raw = _safe_float(fields[45])
+
+        results[code] = {
+            'code': code,
+            'name': fields[1],
+            'price': price,
+            'change_pct': _safe_float(fields[32]),
+            'change_amount': _safe_float(fields[31]),
+            'volume': (_safe_float(fields[6]) or 0) * 100,  # 手 -> 股
+            'amount': (_safe_float(fields[37]) or 0) * 10000,  # 万 -> 元
+            'volume_ratio': _safe_float(fields[49]),
+            'turnover_rate': _safe_float(fields[38]),
+            'amplitude': _safe_float(fields[43]),
+            'open_price': _safe_float(fields[5]),
+            'high': _safe_float(fields[33]),
+            'low': _safe_float(fields[34]),
+            'pre_close': _safe_float(fields[4]),
+            'pe_ratio': _safe_float(fields[39]),
+            'pb_ratio': _safe_float(fields[46]),
+            'total_mv': total_mv_raw * 1e8 if total_mv_raw else None,  # 亿 -> 元
+            'circ_mv': circ_mv_raw * 1e8 if circ_mv_raw else None,  # 亿 -> 元
+        }
+    return results
+
+
+def _fetch_all_tencent() -> List[dict]:
+    """
+    通过腾讯批量接口获取全市场实时行情。
+
+    Returns:
+        记录列表，字段包含换手率/PE/PB/市值/量比等
+    """
+    from src.storage import get_db
+    from sqlalchemy import text
+
+    db = get_db()
+    with db.get_session() as s:
+        codes = [r[0] for r in s.execute(
+            text("SELECT DISTINCT code FROM stock_daily ORDER BY code")
+        ).fetchall()]
+
+    if not codes:
+        logger.warning("[CacheRefresh/Tencent] stock_daily 为空，无法获取股票列表")
+        return []
+
+    all_results = {}
+    for i in range(0, len(codes), _TENCENT_BATCH_SIZE):
+        batch = codes[i:i + _TENCENT_BATCH_SIZE]
+        try:
+            results = _fetch_tencent_batch(batch)
+            all_results.update(results)
+        except Exception as e:
+            logger.warning("[CacheRefresh/Tencent] 批次 %d 失败: %s", i // _TENCENT_BATCH_SIZE + 1, e)
+        time.sleep(0.3)
+
+    records = list(all_results.values())
+    # 从历史数据补充60日涨跌幅（腾讯接口不提供）
+    records = _enrich_from_daily(records)
+    return records
 
 
 def _enrich_from_daily(records: List[dict]) -> List[dict]:
@@ -313,7 +421,7 @@ def _fetch_and_save_realtime_cache() -> int:
     """
     拉取全市场 A 股实时行情并批量写入 DB 缓存。
 
-    策略：先尝试东方财富（字段全），失败后降级到新浪（速度快、稳定性好）。
+    策略：东方财富 → 腾讯 → 新浪，依次降级。
 
     Returns:
         写入记录数，失败返回 0
@@ -324,7 +432,7 @@ def _fetch_and_save_realtime_cache() -> int:
     records = []
     source = "unknown"
 
-    # 尝试东方财富（字段最全）
+    # 1. 尝试东方财富（字段最全：含60日涨跌幅、52周高低）
     try:
         logger.info("[CacheRefresh] 尝试东方财富全量接口...")
         records = _fetch_all_eastmoney()
@@ -332,9 +440,23 @@ def _fetch_and_save_realtime_cache() -> int:
             source = "eastmoney"
             logger.info("[CacheRefresh] 东方财富成功：%d 只，耗时 %.1fs", len(records), time.time() - t0)
     except Exception as e:
-        logger.info("[CacheRefresh] 东方财富失败: %s，降级到新浪接口", e)
+        logger.info("[CacheRefresh] 东方财富失败: %s，降级到腾讯接口", e)
 
-    # 降级到新浪
+    # 2. 降级到腾讯（含换手率/PE/PB/市值/量比，缺60日涨跌幅/52周高低）
+    if not records:
+        try:
+            logger.info("[CacheRefresh] 使用腾讯批量接口...")
+            t1 = time.time()
+            records = _fetch_all_tencent()
+            source = "tencent"
+            if records:
+                logger.info("[CacheRefresh] 腾讯成功：%d 只，耗时 %.1fs", len(records), time.time() - t1)
+            else:
+                logger.warning("[CacheRefresh] 腾讯返回空数据")
+        except Exception as e:
+            logger.info("[CacheRefresh] 腾讯也失败: %s，降级到新浪接口", e)
+
+    # 3. 降级到新浪（基础行情，缺PE/PB/市值/换手率）
     if not records:
         try:
             logger.info("[CacheRefresh] 使用新浪批量接口...")
